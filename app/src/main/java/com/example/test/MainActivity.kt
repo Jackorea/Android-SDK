@@ -15,7 +15,9 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.test.ui.CsvViewerScreen
 import com.example.test.ui.DataScreen
+import com.example.test.ui.FileListScreen
 import com.example.test.ui.ScanScreen
 import com.example.test.ui.theme.TestTheme
 import com.example.test.viewmodel.MainViewModel
@@ -98,6 +100,7 @@ class MainActivity : ComponentActivity() {
                                 val isAccStarted by viewModel.isAccStarted.collectAsState()
                                 val selectedSensors by viewModel.selectedSensors.collectAsState()
                                 val isReceivingData by viewModel.isReceivingData.collectAsState()
+                                val isRecording by viewModel.isRecording.collectAsState()
                                 
                                 DataScreen(
                                     eegData = eegData,
@@ -110,6 +113,7 @@ class MainActivity : ComponentActivity() {
                                     isAccStarted = isAccStarted,
                                     selectedSensors = selectedSensors,
                                     isReceivingData = isReceivingData,
+                                    isRecording = isRecording,
                                     onDisconnect = { viewModel.disconnect() },
                                     onNavigateToScan = { 
                                         navController.navigate("scan") {
@@ -120,7 +124,37 @@ class MainActivity : ComponentActivity() {
                                     onDeselectSensor = { sensor -> viewModel.deselectSensor(sensor) },
                                     onStartSelectedSensors = { viewModel.startSelectedSensors() },
                                     onStopSelectedSensors = { viewModel.stopSelectedSensors() },
-                                    onStartAllSensors = { viewModel.startAllSensors() }
+                                    onStartRecording = { viewModel.startRecording() },
+                                    onStopRecording = { viewModel.stopRecording() },
+                                    onShowFileList = { 
+                                        navController.navigate("fileList")
+                                    }
+                                )
+                            }
+                            
+                            composable("fileList") {
+                                FileListScreen(
+                                    onBack = {
+                                        navController.popBackStack()
+                                    },
+                                    onFileClick = { file ->
+                                        // 파일 경로를 URL 인코딩하여 네비게이션에 전달
+                                        val encodedPath = java.net.URLEncoder.encode(file.absolutePath, "UTF-8")
+                                        navController.navigate("csvViewer/$encodedPath")
+                                    }
+                                )
+                            }
+                            
+                            composable("csvViewer/{filePath}") { backStackEntry ->
+                                val encodedPath = backStackEntry.arguments?.getString("filePath") ?: ""
+                                val filePath = java.net.URLDecoder.decode(encodedPath, "UTF-8")
+                                val file = java.io.File(filePath)
+                                
+                                CsvViewerScreen(
+                                    file = file,
+                                    onBackClick = {
+                                        navController.popBackStack()
+                                    }
                                 )
                             }
                         }

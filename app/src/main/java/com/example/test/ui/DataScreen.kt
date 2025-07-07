@@ -3,6 +3,11 @@ package com.example.test.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -10,12 +15,21 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
+import android.content.Intent
+import android.net.Uri
+import android.os.Environment
+import androidx.core.content.FileProvider
 import com.example.test.ble.SensorType
 import com.example.test.data.AccData
 import com.example.test.data.BatteryData
 import com.example.test.data.EegData
 import com.example.test.data.PpgData
 import kotlin.math.roundToInt
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,13 +44,16 @@ fun DataScreen(
     isAccStarted: Boolean,
     selectedSensors: Set<SensorType>,
     isReceivingData: Boolean,
+    isRecording: Boolean,
     onDisconnect: () -> Unit,
     onNavigateToScan: () -> Unit,
     onSelectSensor: (SensorType) -> Unit,
     onDeselectSensor: (SensorType) -> Unit,
     onStartSelectedSensors: () -> Unit,
     onStopSelectedSensors: () -> Unit,
-    onStartAllSensors: () -> Unit
+    onStartRecording: () -> Unit,
+    onStopRecording: () -> Unit,
+    onShowFileList: () -> Unit
 ) {
     // 연결이 끊어지면 자동으로 스캔 화면으로 이동
     LaunchedEffect(isConnected) {
@@ -45,371 +62,385 @@ fun DataScreen(
         }
     }
     
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 헤더
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "LinkBand 데이터",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Button(
-                onClick = onDisconnect,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("연결 해제")
+                Text(
+                    text = "LinkBand 데이터",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                IconButton(
+                    onClick = onShowFileList
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "저장된 파일 보기",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
         
         // 연결 상태
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = if (isConnected) 
-                    MaterialTheme.colorScheme.primaryContainer 
-                else 
-                    MaterialTheme.colorScheme.errorContainer
-            )
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .padding(end = 8.dp)
-                ) {
-                    // 연결 상태 인디케이터
-                }
-                Text(
-                    text = if (isConnected) "연결됨" else "연결 해제됨",
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-        
-        // 수동 서비스 제어 패널
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "센서 제어",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
-                
-                // 센서 선택 섹션
-                Text(
-                    text = "수신할 센서 선택:",
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 16.sp,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-                
-                // EEG 센서 선택
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = selectedSensors.contains(SensorType.EEG),
-                            onCheckedChange = { checked ->
-                                if (checked) {
-                                    onSelectSensor(SensorType.EEG)
-                                } else {
-                                    onDeselectSensor(SensorType.EEG)
-                                }
-                            },
-                            enabled = isConnected && !isReceivingData
-                        )
-                        Text(
-                            text = "EEG 센서",
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
-                    }
-                    if (isEegStarted) {
-                        Text(
-                            text = "수신 중",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-                
-                // PPG 센서 선택
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = selectedSensors.contains(SensorType.PPG),
-                            onCheckedChange = { checked ->
-                                if (checked) {
-                                    onSelectSensor(SensorType.PPG)
-                                } else {
-                                    onDeselectSensor(SensorType.PPG)
-                                }
-                            },
-                            enabled = isConnected && !isReceivingData
-                        )
-                        Text(
-                            text = "PPG 센서",
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
-                    }
-                    if (isPpgStarted) {
-                        Text(
-                            text = "수신 중",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-                
-                // ACC 센서 선택
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = selectedSensors.contains(SensorType.ACC),
-                            onCheckedChange = { checked ->
-                                if (checked) {
-                                    onSelectSensor(SensorType.ACC)
-                                } else {
-                                    onDeselectSensor(SensorType.ACC)
-                                }
-                            },
-                            enabled = isConnected && !isReceivingData
-                        )
-                        Text(
-                            text = "가속도 센서",
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
-                    }
-                    if (isAccStarted) {
-                        Text(
-                            text = "수신 중",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // 선택된 센서 시작/중지 버튼
-                Button(
-                    onClick = if (isReceivingData) onStopSelectedSensors else onStartSelectedSensors,
-                    enabled = isConnected && selectedSensors.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isReceivingData) 
-                            MaterialTheme.colorScheme.error 
-                        else 
-                            MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Text(
-                        text = if (isReceivingData) 
-                            "🛑 선택된 센서 중지" 
-                        else 
-                            "▶️ 선택된 센서 시작 (${selectedSensors.size}개)",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                // 모든 센서 동시 시작 버튼 (기존 유지)
-                Button(
-                    onClick = onStartAllSensors,
-                    enabled = isConnected && !isReceivingData,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
-                    )
-                ) {
-                    Text("🚀 모든 센서 동시 시작", fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-        
-        // 배터리 정보
-        batteryData?.let { battery ->
+        item {
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = when {
-                        battery.level > 50 -> MaterialTheme.colorScheme.primaryContainer
-                        battery.level > 20 -> MaterialTheme.colorScheme.tertiaryContainer
-                        else -> MaterialTheme.colorScheme.errorContainer
-                    }
+                    containerColor = if (isConnected) 
+                        MaterialTheme.colorScheme.primaryContainer 
+                    else 
+                        MaterialTheme.colorScheme.errorContainer
                 )
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .padding(end = 8.dp)
+                    ) {
+                        // 연결 상태 인디케이터
+                    }
                     Text(
-                        text = "배터리",
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 16.sp
-                    )
-                    Text(
-                        text = "${battery.level}%",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+                        text = if (isConnected) "연결됨" else "연결 해제됨",
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
         }
         
-        // 센서 데이터
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        // 배터리 정보
+        batteryData?.let { battery ->
             item {
-                SensorDataCard(
-                    title = "EEG 데이터",
-                    subtitle = "${eegData.size}개 샘플",
-                    content = {
-                        if (eegData.isNotEmpty()) {
-                            val latest = eegData.takeLast(5)
-                            latest.forEach { data ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "채널1: ${data.channel1.roundToInt()}µV",
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "채널2: ${data.channel2.roundToInt()}µV",
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "Lead: ${data.leadOff}",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = "EEG 데이터를 수신하지 못했습니다",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = when {
+                            battery.level > 50 -> MaterialTheme.colorScheme.primaryContainer
+                            battery.level > 20 -> MaterialTheme.colorScheme.tertiaryContainer
+                            else -> MaterialTheme.colorScheme.errorContainer
                         }
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "배터리",
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 16.sp
+                        )
+                        Text(
+                            text = "${battery.level}%",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp
+                        )
                     }
-                )
+                }
             }
-            
-            item {
-                SensorDataCard(
-                    title = "PPG 데이터",
-                    subtitle = "${ppgData.size}개 샘플",
-                    content = {
-                        if (ppgData.isNotEmpty()) {
-                            val latest = ppgData.takeLast(5)
-                            latest.forEach { data ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Red: ${data.red}",
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "IR: ${data.ir}",
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-                        } else {
-                            Text(
-                                text = "PPG 데이터를 수신하지 못했습니다",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+        }
+        
+        // 수동 서비스 제어 패널
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            }
-            
-            item {
-                SensorDataCard(
-                    title = "가속도계 데이터",
-                    subtitle = "${accData.size}개 샘플",
-                    content = {
-                        if (accData.isNotEmpty()) {
-                            val latest = accData.takeLast(5)
-                            latest.forEach { data ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "X: ${data.x}",
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "Y: ${data.y}",
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "Z: ${data.z}",
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-                        } else {
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "센서 제어",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    
+                    // 센서 선택 섹션
+                    Text(
+                        text = "수신할 센서 선택:",
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                    
+                    // EEG 센서 선택
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedSensors.contains(SensorType.EEG),
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        onSelectSensor(SensorType.EEG)
+                                    } else {
+                                        onDeselectSensor(SensorType.EEG)
+                                    }
+                                },
+                                enabled = isConnected && !isReceivingData
+                            )
                             Text(
-                                text = "가속도계 데이터를 수신하지 못했습니다",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "EEG 센서",
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                        if (isEegStarted) {
+                            Text(
+                                text = "수신 중",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
+                    
+                    // PPG 센서 선택
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedSensors.contains(SensorType.PPG),
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        onSelectSensor(SensorType.PPG)
+                                    } else {
+                                        onDeselectSensor(SensorType.PPG)
+                                    }
+                                },
+                                enabled = isConnected && !isReceivingData
+                            )
+                            Text(
+                                text = "PPG 센서",
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                        if (isPpgStarted) {
+                            Text(
+                                text = "수신 중",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    
+                    // ACC 센서 선택
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedSensors.contains(SensorType.ACC),
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        onSelectSensor(SensorType.ACC)
+                                    } else {
+                                        onDeselectSensor(SensorType.ACC)
+                                    }
+                                },
+                                enabled = isConnected && !isReceivingData
+                            )
+                            Text(
+                                text = "가속도 센서",
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                        if (isAccStarted) {
+                            Text(
+                                text = "수신 중",
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    // 선택된 센서 시작/중지 버튼
+                    Button(
+                        onClick = if (isReceivingData) onStopSelectedSensors else onStartSelectedSensors,
+                        enabled = isConnected && selectedSensors.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isReceivingData) 
+                                MaterialTheme.colorScheme.error 
+                            else 
+                                MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text(
+                            text = if (isReceivingData) 
+                                "🛑 선택된 센서 중지" 
+                            else 
+                                "▶️ 선택된 센서 시작 (${selectedSensors.size}개)",
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // CSV 기록 버튼 (센서가 수신 중일 때만 표시)
+                    if (isReceivingData) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Button(
+                            onClick = if (isRecording) onStopRecording else onStartRecording,
+                            enabled = isConnected && isReceivingData,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isRecording) 
+                                    MaterialTheme.colorScheme.error 
+                                else 
+                                    MaterialTheme.colorScheme.tertiary
+                            )
+                        ) {
+                            Text(
+                                text = if (isRecording) 
+                                    "⏹️ 기록 중지" 
+                                else 
+                                    "📝 기록 시작",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        
+                        if (isRecording) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "📁 CSV 파일로 데이터 기록 중...",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // EEG 데이터 (같은 레벨에 표시)
+        item {
+            SensorDataCard(
+                title = "EEG 데이터",
+                subtitle = "${eegData.size}개 샘플",
+                content = {
+                    if (eegData.isNotEmpty()) {
+                        val latest = eegData.takeLast(3)
+                        latest.forEach { data ->
+                            val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+                            Text(
+                                text = "${timeFormat.format(data.timestamp)} - CH1: ${data.channel1.roundToInt()}µV, CH2: ${data.channel2.roundToInt()}µV, Lead: ${if (data.leadOff) "OFF" else "ON"}",
+                                fontSize = 12.sp
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "EEG 데이터를 수신하지 못했습니다",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            )
+        }
+        
+        // PPG 데이터 (같은 레벨에 표시)
+        item {
+            SensorDataCard(
+                title = "PPG 데이터",
+                subtitle = "${ppgData.size}개 샘플",
+                content = {
+                    if (ppgData.isNotEmpty()) {
+                        val latest = ppgData.takeLast(3)
+                        latest.forEach { data ->
+                            val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+                            Text(
+                                text = "${timeFormat.format(data.timestamp)} - Red: ${data.red}, IR: ${data.ir}",
+                                fontSize = 12.sp
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "PPG 데이터를 수신하지 못했습니다",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            )
+        }
+        
+        // 가속도계 데이터 (같은 레벨에 표시)
+        item {
+            SensorDataCard(
+                title = "가속도계 데이터",
+                subtitle = "${accData.size}개 샘플",
+                content = {
+                    if (accData.isNotEmpty()) {
+                        val latest = accData.takeLast(3)
+                        latest.forEach { data ->
+                            val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+                            Text(
+                                text = "${timeFormat.format(data.timestamp)} - X: ${data.x}, Y: ${data.y}, Z: ${data.z}",
+                                fontSize = 12.sp
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "가속도계 데이터를 수신하지 못했습니다",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            )
+        }
+        
+        // 연결해제 버튼 (맨 아래)
+        item {
+            Button(
+                onClick = onDisconnect,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text(
+                    text = "🔌 연결 해제",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
                 )
             }
         }
@@ -447,6 +478,258 @@ fun SensorDataCard(
             }
             
             content()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun FileListScreen(
+    onBack: () -> Unit,
+    onFileClick: (java.io.File) -> Unit
+) {
+    var csvFiles by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    
+    // 파일 목록 로드
+    LaunchedEffect(Unit) {
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val linkBandDir = java.io.File(downloadsDir, "LinkBand")
+        if (linkBandDir.exists()) {
+            csvFiles = linkBandDir.listFiles { file ->
+                file.name.endsWith(".csv") && file.name.startsWith("LinkBand_")
+            }?.sortedByDescending { it.lastModified() } ?: emptyList()
+        }
+    }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // 헤더
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "저장된 CSV 파일",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                // Share 아이콘을 제목 오른쪽으로 이동
+                IconButton(
+                    onClick = {
+                        // "내 파일" 앱으로 직접 Downloads/LinkBand 폴더 열기
+                        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                        val linkBandDir = java.io.File(downloadsDir, "LinkBand")
+                        
+                        // LinkBand 폴더가 없으면 생성
+                        if (!linkBandDir.exists()) {
+                            linkBandDir.mkdirs()
+                        }
+                        
+                        try {
+                            // 방법 1: 삼성 "내 파일" 앱 직접 실행
+                            val intent = Intent()
+                            intent.setClassName("com.sec.android.app.myfiles", "com.sec.android.app.myfiles.external.ui.MainActivity")
+                            intent.action = Intent.ACTION_VIEW
+                            intent.setDataAndType(Uri.fromFile(downloadsDir), "resource/folder")
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            context.startActivity(intent)
+                        } catch (e1: Exception) {
+                            try {
+                                // 방법 2: 구글 "Files" 앱 직접 실행
+                                val intent = Intent()
+                                intent.setClassName("com.google.android.apps.nbu.files", "com.google.android.apps.nbu.files.home.HomeActivity")
+                                intent.action = Intent.ACTION_VIEW
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            } catch (e2: Exception) {
+                                try {
+                                    // 방법 3: 일반적인 파일 관리자 (선택 없이)
+                                    val intent = Intent(Intent.ACTION_MAIN)
+                                    intent.addCategory(Intent.CATEGORY_APP_FILES)
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(intent)
+                                } catch (e3: Exception) {
+                                    try {
+                                        // 방법 4: Downloads 관리자 직접 실행
+                                        val intent = Intent("android.intent.action.VIEW_DOWNLOADS")
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    } catch (e4: Exception) {
+                                        try {
+                                            // 방법 5: 시스템 문서 UI로 Downloads 폴더 열기
+                                            val intent = Intent(Intent.ACTION_VIEW)
+                                            intent.setDataAndType(
+                                                Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload"),
+                                                "vnd.android.document/directory"
+                                            )
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            context.startActivity(intent)
+                                        } catch (e5: Exception) {
+                                            // 모든 방법 실패 - 사용자에게 안내
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "내 파일 앱을 열 수 없습니다.\n수동으로 이동하세요:\n내 파일 → Download → LinkBand",
+                                                android.widget.Toast.LENGTH_LONG
+                                            ).show()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.combinedClickable(
+                        onClick = {
+                            // 일반 터치: 파일 관리자 열기 (위의 onClick과 동일)
+                        },
+                        onLongClick = {
+                            // 길게 누르면 파일 경로를 클립보드에 복사
+                            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                            val linkBandDir = java.io.File(downloadsDir, "LinkBand")
+                            clipboardManager.setText(AnnotatedString(linkBandDir.absolutePath))
+                            android.widget.Toast.makeText(
+                                context,
+                                "파일 경로가 클립보드에 복사되었습니다:\n${linkBandDir.absolutePath}",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "내 파일 앱으로 Downloads/LinkBand 폴더 열기",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            
+            TextButton(onClick = onBack) {
+                Text("← 뒤로")
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        if (csvFiles.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "📁",
+                        fontSize = 48.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "저장된 CSV 파일이 없습니다",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "센서 데이터를 기록하면 여기에 표시됩니다",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(csvFiles) { file ->
+                    CsvFileItem(file = file, onFileClick = onFileClick)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CsvFileItem(file: java.io.File, onFileClick: (java.io.File) -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = file.name,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 16.sp
+                    )
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    val fileSize = when {
+                        file.length() < 1024 -> "${file.length()} B"
+                        file.length() < 1024 * 1024 -> "${file.length() / 1024} KB"
+                        else -> "${"%.1f".format(file.length() / (1024.0 * 1024.0))} MB"
+                    }
+                    
+                    val lastModified = java.text.SimpleDateFormat(
+                        "yyyy-MM-dd HH:mm:ss", 
+                        java.util.Locale.getDefault()
+                    ).format(java.util.Date(file.lastModified()))
+                    
+                    Text(
+                        text = "크기: $fileSize",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    Text(
+                        text = "수정: $lastModified",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                // 센서 타입 표시
+                val sensorType = when {
+                    file.name.contains("EEG") -> "📊 EEG"
+                    file.name.contains("PPG") -> "🔴 PPG"
+                    file.name.contains("ACC") -> "🚀 ACC"
+                    else -> "📄"
+                }
+                
+                Text(
+                    text = sensorType,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            
+            Button(
+                onClick = { onFileClick(file) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("미리보기")
+            }
         }
     }
 } 

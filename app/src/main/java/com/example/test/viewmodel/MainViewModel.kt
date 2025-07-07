@@ -38,6 +38,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedSensors: StateFlow<Set<SensorType>> = bleManager.selectedSensors
     val isReceivingData: StateFlow<Boolean> = bleManager.isReceivingData
     
+    // CSV 기록 상태
+    val isRecording: StateFlow<Boolean> = bleManager.isRecording
+    
     init {
         // PPG 데이터 변경사항 로그 확인
         viewModelScope.launch {
@@ -120,14 +123,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     
-    // 모든 센서 동시 시작 함수 추가
-    fun startAllSensors() {
-        Log.d("MainViewModel", "모든 센서 동시 시작 요청")
-        viewModelScope.launch {
-            bleManager.startAllSensors()
-        }
-    }
-    
     // 자동연결 제어 함수들
     fun enableAutoReconnect() {
         viewModelScope.launch {
@@ -165,6 +160,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "선택된 센서들 중지 요청")
         viewModelScope.launch {
             bleManager.stopSelectedSensors()
+        }
+    }
+    
+    // CSV 기록 제어 함수들
+    fun startRecording() {
+        Log.d("MainViewModel", "CSV 기록 시작 요청")
+        viewModelScope.launch {
+            bleManager.startRecording()
+        }
+    }
+    
+    fun stopRecording() {
+        Log.d("MainViewModel", "CSV 기록 중지 요청")
+        viewModelScope.launch {
+            bleManager.stopRecording()
         }
     }
     
