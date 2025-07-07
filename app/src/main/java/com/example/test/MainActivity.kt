@@ -96,6 +96,8 @@ class MainActivity : ComponentActivity() {
                                 val isEegStarted by viewModel.isEegStarted.collectAsState()
                                 val isPpgStarted by viewModel.isPpgStarted.collectAsState()
                                 val isAccStarted by viewModel.isAccStarted.collectAsState()
+                                val selectedSensors by viewModel.selectedSensors.collectAsState()
+                                val isReceivingData by viewModel.isReceivingData.collectAsState()
                                 
                                 DataScreen(
                                     eegData = eegData,
@@ -106,18 +108,18 @@ class MainActivity : ComponentActivity() {
                                     isEegStarted = isEegStarted,
                                     isPpgStarted = isPpgStarted,
                                     isAccStarted = isAccStarted,
+                                    selectedSensors = selectedSensors,
+                                    isReceivingData = isReceivingData,
                                     onDisconnect = { viewModel.disconnect() },
                                     onNavigateToScan = { 
                                         navController.navigate("scan") {
                                             popUpTo("data") { inclusive = true }
                                         }
                                     },
-                                    onStartEeg = { viewModel.startEegService() },
-                                    onStopEeg = { viewModel.stopEegService() },
-                                    onStartPpg = { viewModel.startPpgService() },
-                                    onStopPpg = { viewModel.stopPpgService() },
-                                    onStartAcc = { viewModel.startAccService() },
-                                    onStopAcc = { viewModel.stopAccService() },
+                                    onSelectSensor = { sensor -> viewModel.selectSensor(sensor) },
+                                    onDeselectSensor = { sensor -> viewModel.deselectSensor(sensor) },
+                                    onStartSelectedSensors = { viewModel.startSelectedSensors() },
+                                    onStopSelectedSensors = { viewModel.stopSelectedSensors() },
                                     onStartAllSensors = { viewModel.startAllSensors() }
                                 )
                             }

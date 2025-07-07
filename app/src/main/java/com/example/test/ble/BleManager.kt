@@ -24,6 +24,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 
+// 센서 타입 enum 추가
+enum class SensorType {
+    EEG, PPG, ACC
+}
+
 @SuppressLint("MissingPermission")
 class BleManager(private val context: Context) {
     
@@ -93,6 +98,13 @@ class BleManager(private val context: Context) {
     private var reconnectAttempts = 0
     private val maxReconnectAttempts = 5
     private var reconnectRunnable: Runnable? = null
+    
+    // 센서 선택 상태 관리
+    private val _selectedSensors = MutableStateFlow<Set<SensorType>>(emptySet())
+    val selectedSensors: StateFlow<Set<SensorType>> = _selectedSensors.asStateFlow()
+    
+    private val _isReceivingData = MutableStateFlow(false)
+    val isReceivingData: StateFlow<Boolean> = _isReceivingData.asStateFlow()
     
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -706,5 +718,125 @@ class BleManager(private val context: Context) {
             val batteryLevel = data[0].toInt() and 0xFF
             _batteryData.value = BatteryData(batteryLevel)
         }
+    }
+    
+    // 센서 선택 제어 함수들
+    fun selectSensor(sensor: SensorType) {
+        val currentSelected = _selectedSensors.value.toMutableSet()
+        currentSelected.add(sensor)
+        _selectedSensors.value = currentSelected
+        Log.d("BleManager", "Sensor selected: $sensor, current selection: $currentSelected")
+    }
+    
+    fun deselectSensor(sensor: SensorType) {
+        val currentSelected = _selectedSensors.value.toMutableSet()
+        currentSelected.remove(sensor)
+        _selectedSensors.value = currentSelected
+        Log.d("BleManager", "Sensor deselected: $sensor, current selection: $currentSelected")
+    }
+    
+    fun startSelectedSensors() {
+        val selectedSensors = _selectedSensors.value
+        if (selectedSensors.isEmpty()) {
+            Log.w("BleManager", "No sensors selected")
+            return
+        }
+        
+        Log.d("BleManager", "=== 선택된 센서들 시작: $selectedSensors ===")
+        bluetoothGatt?.let { gatt ->
+            var delay = 0L
+            
+            // EEG가 선택되었으면 EEG 시작 명령 먼저 전송
+            if (selectedSensors.contains(SensorType.EEG)) {
+                val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
+                eegWriteChar?.let {
+                    Log.d("BleManager", "Starting EEG...")
+                    it.value = byteArrayOf(0x01)
+                    gatt.writeCharacteristic(it)
+                }
+            }
+            
+            // 각 선택된 센서의 notification 설정
+            selectedSensors.forEach { sensor ->
+                handler.postDelayed({
+                    when (sensor) {
+                        SensorType.EEG -> {
+                            val eegNotifyChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_NOTIFY_CHAR_UUID)
+                            eegNotifyChar?.let { setupNotification(gatt, it, "EEG") }
+                            _isEegStarted.value = true
+                        }
+                        SensorType.PPG -> {
+                            val ppgChar = gatt.getService(PPG_SERVICE_UUID)?.getCharacteristic(PPG_CHAR_UUID)
+                            ppgChar?.let { setupNotification(gatt, it, "PPG") }
+                            _isPpgStarted.value = true
+                        }
+                        SensorType.ACC -> {
+                            val accChar = gatt.getService(ACCELEROMETER_SERVICE_UUID)?.getCharacteristic(ACCELEROMETER_CHAR_UUID)
+                            accChar?.let { setupNotification(gatt, it, "ACC") }
+                            _isAccStarted.value = true
+                        }
+                    }
+                }, delay)
+                delay += 300 // 각 센서 간 300ms 간격
+            }
+            
+            _isReceivingData.value = true
+            
+            // 데이터 수신 확인 (10초 후)
+            handler.postDelayed({
+                val eegCount = _eegData.value.size
+                val ppgCount = _ppgData.value.size
+                val accCount = _accData.value.size
+                
+                Log.d("BleManager", "=== 선택된 센서 데이터 수신 결과 ===")
+                if (selectedSensors.contains(SensorType.EEG)) Log.d("BleManager", "EEG: ${eegCount}개 샘플")
+                if (selectedSensors.contains(SensorType.PPG)) Log.d("BleManager", "PPG: ${ppgCount}개 샘플")
+                if (selectedSensors.contains(SensorType.ACC)) Log.d("BleManager", "ACC: ${accCount}개 샘플")
+            }, 10000)
+        }
+    }
+    
+    fun stopSelectedSensors() {
+        val selectedSensors = _selectedSensors.value
+        Log.d("BleManager", "=== 선택된 센서들 중지: $selectedSensors ===")
+        
+        bluetoothGatt?.let { gatt ->
+            selectedSensors.forEach { sensor ->
+                when (sensor) {
+                    SensorType.EEG -> {
+                        val eegNotifyChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_NOTIFY_CHAR_UUID)
+                        eegNotifyChar?.let { gatt.setCharacteristicNotification(it, false) }
+                        val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
+                        eegWriteChar?.let {
+                            it.value = "stop".toByteArray()
+                            gatt.writeCharacteristic(it)
+                        }
+                        _isEegStarted.value = false
+                    }
+                    SensorType.PPG -> {
+                        val ppgChar = gatt.getService(PPG_SERVICE_UUID)?.getCharacteristic(PPG_CHAR_UUID)
+                        ppgChar?.let { gatt.setCharacteristicNotification(it, false) }
+                        _isPpgStarted.value = false
+                    }
+                    SensorType.ACC -> {
+                        val accChar = gatt.getService(ACCELEROMETER_SERVICE_UUID)?.getCharacteristic(ACCELEROMETER_CHAR_UUID)
+                        accChar?.let { gatt.setCharacteristicNotification(it, false) }
+                        _isAccStarted.value = false
+                    }
+                }
+            }
+        }
+        
+        _isReceivingData.value = false
+    }
+    
+    private fun setupNotification(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, sensorName: String) {
+        Log.d("BleManager", "Setting up $sensorName notification")
+        gatt.setCharacteristicNotification(characteristic, true)
+        val descriptor = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+        descriptor?.let { desc ->
+            desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            gatt.writeDescriptor(desc)
+        } ?: Log.e("BleManager", "$sensorName descriptor not found")
     }
 } 

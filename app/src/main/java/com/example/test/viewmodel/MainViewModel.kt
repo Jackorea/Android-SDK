@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.test.ble.BleManager
+import com.example.test.ble.SensorType
 import com.example.test.data.AccData
 import com.example.test.data.BatteryData
 import com.example.test.data.EegData
@@ -32,6 +33,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     // 자동연결 상태
     val isAutoReconnectEnabled: StateFlow<Boolean> = bleManager.isAutoReconnectEnabled
+    
+    // 센서 선택 상태
+    val selectedSensors: StateFlow<Set<SensorType>> = bleManager.selectedSensors
+    val isReceivingData: StateFlow<Boolean> = bleManager.isReceivingData
     
     init {
         // PPG 데이터 변경사항 로그 확인
@@ -133,6 +138,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun disableAutoReconnect() {
         viewModelScope.launch {
             bleManager.disableAutoReconnect()
+        }
+    }
+    
+    // 센서 선택 제어 함수들
+    fun selectSensor(sensor: SensorType) {
+        viewModelScope.launch {
+            bleManager.selectSensor(sensor)
+        }
+    }
+    
+    fun deselectSensor(sensor: SensorType) {
+        viewModelScope.launch {
+            bleManager.deselectSensor(sensor)
+        }
+    }
+    
+    fun startSelectedSensors() {
+        Log.d("MainViewModel", "선택된 센서들 시작 요청")
+        viewModelScope.launch {
+            bleManager.startSelectedSensors()
+        }
+    }
+    
+    fun stopSelectedSensors() {
+        Log.d("MainViewModel", "선택된 센서들 중지 요청")
+        viewModelScope.launch {
+            bleManager.stopSelectedSensors()
         }
     }
     

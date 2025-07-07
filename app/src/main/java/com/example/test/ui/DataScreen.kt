@@ -10,6 +10,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.test.ble.SensorType
 import com.example.test.data.AccData
 import com.example.test.data.BatteryData
 import com.example.test.data.EegData
@@ -27,14 +28,14 @@ fun DataScreen(
     isEegStarted: Boolean,
     isPpgStarted: Boolean, 
     isAccStarted: Boolean,
+    selectedSensors: Set<SensorType>,
+    isReceivingData: Boolean,
     onDisconnect: () -> Unit,
     onNavigateToScan: () -> Unit,
-    onStartEeg: () -> Unit,
-    onStopEeg: () -> Unit,
-    onStartPpg: () -> Unit,
-    onStopPpg: () -> Unit,
-    onStartAcc: () -> Unit,
-    onStopAcc: () -> Unit,
+    onSelectSensor: (SensorType) -> Unit,
+    onDeselectSensor: (SensorType) -> Unit,
+    onStartSelectedSensors: () -> Unit,
+    onStopSelectedSensors: () -> Unit,
     onStartAllSensors: () -> Unit
 ) {
     // 연결이 끊어지면 자동으로 스캔 화면으로 이동
@@ -119,99 +120,154 @@ fun DataScreen(
                     fontSize = 18.sp
                 )
                 
-                // 모든 센서 동시 시작 버튼 추가
+                // 센서 선택 섹션
+                Text(
+                    text = "수신할 센서 선택:",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                
+                // EEG 센서 선택
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedSensors.contains(SensorType.EEG),
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    onSelectSensor(SensorType.EEG)
+                                } else {
+                                    onDeselectSensor(SensorType.EEG)
+                                }
+                            },
+                            enabled = isConnected && !isReceivingData
+                        )
+                        Text(
+                            text = "EEG 센서",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    if (isEegStarted) {
+                        Text(
+                            text = "수신 중",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                
+                // PPG 센서 선택
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedSensors.contains(SensorType.PPG),
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    onSelectSensor(SensorType.PPG)
+                                } else {
+                                    onDeselectSensor(SensorType.PPG)
+                                }
+                            },
+                            enabled = isConnected && !isReceivingData
+                        )
+                        Text(
+                            text = "PPG 센서",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    if (isPpgStarted) {
+                        Text(
+                            text = "수신 중",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                
+                // ACC 센서 선택
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedSensors.contains(SensorType.ACC),
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    onSelectSensor(SensorType.ACC)
+                                } else {
+                                    onDeselectSensor(SensorType.ACC)
+                                }
+                            },
+                            enabled = isConnected && !isReceivingData
+                        )
+                        Text(
+                            text = "가속도 센서",
+                            modifier = Modifier.padding(start = 8.dp)
+                        )
+                    }
+                    if (isAccStarted) {
+                        Text(
+                            text = "수신 중",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // 선택된 센서 시작/중지 버튼
                 Button(
-                    onClick = onStartAllSensors,
-                    enabled = isConnected,
+                    onClick = if (isReceivingData) onStopSelectedSensors else onStartSelectedSensors,
+                    enabled = isConnected && selectedSensors.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = if (isReceivingData) 
+                            MaterialTheme.colorScheme.error 
+                        else 
+                            MaterialTheme.colorScheme.primary
                     )
                 ) {
-                    Text("🚀 모든 센서 동시 시작", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (isReceivingData) 
+                            "🛑 선택된 센서 중지" 
+                        else 
+                            "▶️ 선택된 센서 시작 (${selectedSensors.size}개)",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                // EEG 제어
-                Row(
+                // 모든 센서 동시 시작 버튼 (기존 유지)
+                Button(
+                    onClick = onStartAllSensors,
+                    enabled = isConnected && !isReceivingData,
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
                 ) {
-                    Text("EEG 센서")
-                    Row {
-                        Button(
-                            onClick = onStartEeg,
-                            enabled = isConnected && !isEegStarted,
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text("시작")
-                        }
-                        Button(
-                            onClick = onStopEeg,
-                            enabled = isConnected && isEegStarted,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            )
-                        ) {
-                            Text("중지")
-                        }
-                    }
-                }
-                
-                // PPG 제어
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("PPG 센서")
-                    Row {
-                        Button(
-                            onClick = onStartPpg,
-                            enabled = isConnected && !isPpgStarted,
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text("시작")
-                        }
-                        Button(
-                            onClick = onStopPpg,
-                            enabled = isConnected && isPpgStarted,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            )
-                        ) {
-                            Text("중지")
-                        }
-                    }
-                }
-                
-                // ACC 제어
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("가속도 센서")
-                    Row {
-                        Button(
-                            onClick = onStartAcc,
-                            enabled = isConnected && !isAccStarted,
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text("시작")
-                        }
-                        Button(
-                            onClick = onStopAcc,
-                            enabled = isConnected && isAccStarted,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            )
-                        ) {
-                            Text("중지")
-                        }
-                    }
+                    Text("🚀 모든 센서 동시 시작", fontWeight = FontWeight.Bold)
                 }
             }
         }
