@@ -21,6 +21,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val scannedDevices: StateFlow<List<BluetoothDevice>> = bleManager.scannedDevices
     val isScanning: StateFlow<Boolean> = bleManager.isScanning
     val isConnected: StateFlow<Boolean> = bleManager.isConnected
+    val connectedDeviceName: StateFlow<String?> = bleManager.connectedDeviceName
     val eegData: StateFlow<List<EegData>> = bleManager.eegData
     val ppgData: StateFlow<List<PpgData>> = bleManager.ppgData
     val accData: StateFlow<List<AccData>> = bleManager.accData

@@ -101,6 +101,8 @@ class MainActivity : ComponentActivity() {
                                 val selectedSensors by viewModel.selectedSensors.collectAsState()
                                 val isReceivingData by viewModel.isReceivingData.collectAsState()
                                 val isRecording by viewModel.isRecording.collectAsState()
+                                val isAutoReconnectEnabled by viewModel.isAutoReconnectEnabled.collectAsState()
+                                val connectedDeviceName by viewModel.connectedDeviceName.collectAsState()
                                 
                                 DataScreen(
                                     eegData = eegData,
@@ -114,6 +116,8 @@ class MainActivity : ComponentActivity() {
                                     selectedSensors = selectedSensors,
                                     isReceivingData = isReceivingData,
                                     isRecording = isRecording,
+                                    isAutoReconnectEnabled = isAutoReconnectEnabled,
+                                    connectedDeviceName = connectedDeviceName,
                                     onDisconnect = { viewModel.disconnect() },
                                     onNavigateToScan = { 
                                         navController.navigate("scan") {
@@ -128,6 +132,13 @@ class MainActivity : ComponentActivity() {
                                     onStopRecording = { viewModel.stopRecording() },
                                     onShowFileList = { 
                                         navController.navigate("fileList")
+                                    },
+                                    onToggleAutoReconnect = { 
+                                        if (isAutoReconnectEnabled) {
+                                            viewModel.disableAutoReconnect()
+                                        } else {
+                                            viewModel.enableAutoReconnect()
+                                        }
                                     }
                                 )
                             }

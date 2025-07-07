@@ -45,6 +45,8 @@ fun DataScreen(
     selectedSensors: Set<SensorType>,
     isReceivingData: Boolean,
     isRecording: Boolean,
+    isAutoReconnectEnabled: Boolean,
+    connectedDeviceName: String?,
     onDisconnect: () -> Unit,
     onNavigateToScan: () -> Unit,
     onSelectSensor: (SensorType) -> Unit,
@@ -53,8 +55,13 @@ fun DataScreen(
     onStopSelectedSensors: () -> Unit,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
-    onShowFileList: () -> Unit
+    onShowFileList: () -> Unit,
+    onToggleAutoReconnect: () -> Unit
 ) {
+    // 경고 다이얼로그 상태
+    var showStopCollectionDialog by remember { mutableStateOf(false) }
+    var showDisconnectDialog by remember { mutableStateOf(false) }
+    
     // 연결이 끊어지면 자동으로 스캔 화면으로 이동
     LaunchedEffect(isConnected) {
         if (!isConnected) {
@@ -103,23 +110,38 @@ fun DataScreen(
                         MaterialTheme.colorScheme.errorContainer
                 )
             ) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(16.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .padding(end = 8.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // 연결 상태 인디케이터
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .padding(end = 8.dp)
+                        ) {
+                            // 연결 상태 인디케이터
+                        }
+                        Text(
+                            text = if (isConnected) {
+                                connectedDeviceName?.let { "연결됨: $it" } ?: "연결됨"
+                            } else "연결 해제됨",
+                            fontWeight = FontWeight.Medium
+                        )
                     }
-                    Text(
-                        text = if (isConnected) "연결됨" else "연결 해제됨",
-                        fontWeight = FontWeight.Medium
-                    )
+                    
+                    if (isConnected) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "샘플링 레이트 \n EEG 250Hz \n PPG 50Hz \n ACC 25Hz",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -276,7 +298,7 @@ fun DataScreen(
                                 enabled = isConnected && !isReceivingData
                             )
                             Text(
-                                text = "가속도 센서",
+                                text = "ACC 센서",
                                 modifier = Modifier.padding(start = 8.dp)
                             )
                         }
@@ -294,7 +316,18 @@ fun DataScreen(
                     
                     // 선택된 센서 시작/중지 버튼
                     Button(
-                        onClick = if (isReceivingData) onStopSelectedSensors else onStartSelectedSensors,
+                        onClick = {
+                            if (isReceivingData) {
+                                // 수집 중지 시 기록 중이면 경고 다이얼로그 표시
+                                if (isRecording) {
+                                    showStopCollectionDialog = true
+                                } else {
+                                    onStopSelectedSensors()
+                                }
+                            } else {
+                                onStartSelectedSensors()
+                            }
+                        },
                         enabled = isConnected && selectedSensors.isNotEmpty(),
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(
@@ -306,9 +339,9 @@ fun DataScreen(
                     ) {
                         Text(
                             text = if (isReceivingData) 
-                                "🛑 선택된 센서 중지" 
+                                "🛑 수집 중지" 
                             else 
-                                "▶️ 선택된 센서 시작 (${selectedSensors.size}개)",
+                                "▶️ 수집 시작 (${selectedSensors.size}개)",
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -357,7 +390,6 @@ fun DataScreen(
         item {
             SensorDataCard(
                 title = "EEG 데이터",
-                subtitle = "${eegData.size}개 샘플",
                 content = {
                     if (eegData.isNotEmpty()) {
                         val latest = eegData.takeLast(3)
@@ -382,7 +414,6 @@ fun DataScreen(
         item {
             SensorDataCard(
                 title = "PPG 데이터",
-                subtitle = "${ppgData.size}개 샘플",
                 content = {
                     if (ppgData.isNotEmpty()) {
                         val latest = ppgData.takeLast(3)
@@ -403,11 +434,10 @@ fun DataScreen(
             )
         }
         
-        // 가속도계 데이터 (같은 레벨에 표시)
+        // ACC 데이터 (같은 레벨에 표시)
         item {
             SensorDataCard(
-                title = "가속도계 데이터",
-                subtitle = "${accData.size}개 샘플",
+                title = "ACC 데이터",
                 content = {
                     if (accData.isNotEmpty()) {
                         val latest = accData.takeLast(3)
@@ -420,7 +450,7 @@ fun DataScreen(
                         }
                     } else {
                         Text(
-                            text = "가속도계 데이터를 수신하지 못했습니다",
+                            text = "ACC 데이터를 수신하지 못했습니다",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -428,10 +458,37 @@ fun DataScreen(
             )
         }
         
+        // 자동연결 토글 (ACC 데이터 카드 아래로 이동)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "자동연결",
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 16.sp
+                    )
+                    Switch(
+                        checked = isAutoReconnectEnabled,
+                        onCheckedChange = { onToggleAutoReconnect() }
+                    )
+                }
+            }
+        }
+        
         // 연결해제 버튼 (맨 아래)
         item {
             Button(
-                onClick = onDisconnect,
+                onClick = { showDisconnectDialog = true },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.error
@@ -445,12 +502,67 @@ fun DataScreen(
             }
         }
     }
+    
+    // 수집 중지 경고 다이얼로그 (기록 중일 때)
+    if (showStopCollectionDialog) {
+        AlertDialog(
+            onDismissRequest = { showStopCollectionDialog = false },
+            title = { Text("수집 중지 경고") },
+            text = { Text("현재 데이터 기록 중입니다. 수집을 중지하면 기록도 함께 중지됩니다. 계속하시겠습니까?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showStopCollectionDialog = false
+                        onStopSelectedSensors()
+                        // 기록도 함께 중지
+                        if (isRecording) {
+                            onStopRecording()
+                        }
+                    }
+                ) {
+                    Text("확인")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showStopCollectionDialog = false }
+                ) {
+                    Text("취소")
+                }
+            }
+        )
+    }
+    
+    // 연결 해제 경고 다이얼로그
+    if (showDisconnectDialog) {
+        AlertDialog(
+            onDismissRequest = { showDisconnectDialog = false },
+            title = { Text("연결 해제 경고") },
+            text = { Text("디바이스와의 연결을 해제하시겠습니까? 수집 중인 데이터와 기록이 중지됩니다.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDisconnectDialog = false
+                        onDisconnect()
+                    }
+                ) {
+                    Text("확인")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDisconnectDialog = false }
+                ) {
+                    Text("취소")
+                }
+            }
+        )
+    }
 }
 
 @Composable
 fun SensorDataCard(
     title: String,
-    subtitle: String,
     content: @Composable () -> Unit
 ) {
     Card(
@@ -460,22 +572,11 @@ fun SensorDataCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = subtitle,
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = title,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium
+            )
             
             content()
         }

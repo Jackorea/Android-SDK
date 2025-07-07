@@ -81,6 +81,9 @@ class BleManager(private val context: Context) {
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
     
+    private val _connectedDeviceName = MutableStateFlow<String?>(null)
+    val connectedDeviceName: StateFlow<String?> = _connectedDeviceName.asStateFlow()
+    
     private val _eegData = MutableStateFlow<List<EegData>>(emptyList())
     val eegData: StateFlow<List<EegData>> = _eegData.asStateFlow()
     
@@ -103,7 +106,7 @@ class BleManager(private val context: Context) {
     val isAccStarted: StateFlow<Boolean> = _isAccStarted.asStateFlow()
     
     // 자동연결 관련 StateFlow 추가
-    private val _isAutoReconnectEnabled = MutableStateFlow(false)
+    private val _isAutoReconnectEnabled = MutableStateFlow(true) // 디폴트로 활성화
     val isAutoReconnectEnabled: StateFlow<Boolean> = _isAutoReconnectEnabled.asStateFlow()
     
     // 마지막 연결된 디바이스 정보 저장
@@ -153,6 +156,7 @@ class BleManager(private val context: Context) {
             when (newState) {
                 BluetoothGatt.STATE_CONNECTED -> {
                     _isConnected.value = true
+                    _connectedDeviceName.value = gatt.device.name
                     // 연결 성공 시 재연결 시도 횟수 리셋
                     reconnectAttempts = 0
                     // 현재 연결된 디바이스를 마지막 연결 디바이스로 저장
@@ -164,6 +168,7 @@ class BleManager(private val context: Context) {
                 }
                 BluetoothGatt.STATE_DISCONNECTED -> {
                     _isConnected.value = false
+                    _connectedDeviceName.value = null
                     // 연결 해제 시 모든 센서 상태 리셋
                     _isEegStarted.value = false
                     _isPpgStarted.value = false
@@ -867,6 +872,12 @@ class BleManager(private val context: Context) {
             return
         }
         
+        val selectedSensors = _selectedSensors.value
+        if (selectedSensors.isEmpty()) {
+            Log.w("BleManager", "No sensors selected for recording")
+            return
+        }
+        
         try {
             recordingStartTime = System.currentTimeMillis()
             val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -883,23 +894,36 @@ class BleManager(private val context: Context) {
                 linkBandDir.mkdirs()
             }
             
-            // 각 센서별 CSV 파일 생성
-            val eegFile = File(linkBandDir, "LinkBand_EEG_${timestamp}.csv")
-            val ppgFile = File(linkBandDir, "LinkBand_PPG_${timestamp}.csv")
-            val accFile = File(linkBandDir, "LinkBand_ACC_${timestamp}.csv")
+            // 선택된 센서에 대해서만 CSV 파일 생성
+            val createdFiles = mutableListOf<String>()
             
-            eegCsvWriter = FileWriter(eegFile)
-            ppgCsvWriter = FileWriter(ppgFile)
-            accCsvWriter = FileWriter(accFile)
+            if (selectedSensors.contains(SensorType.EEG)) {
+                val eegFile = File(linkBandDir, "LinkBand_EEG_${timestamp}.csv")
+                eegCsvWriter = FileWriter(eegFile)
+                eegCsvWriter?.write("Timestamp,Channel1_uV,Channel2_uV,LeadOff\n")
+                createdFiles.add("EEG=${eegFile.name}")
+                Log.d("BleManager", "EEG CSV file created: ${eegFile.name}")
+            }
             
-            // CSV 헤더 작성
-            eegCsvWriter?.write("Timestamp,Channel1_uV,Channel2_uV,LeadOff\n")
-            ppgCsvWriter?.write("Timestamp,Red,IR\n")
-            accCsvWriter?.write("Timestamp,X,Y,Z\n")
+            if (selectedSensors.contains(SensorType.PPG)) {
+                val ppgFile = File(linkBandDir, "LinkBand_PPG_${timestamp}.csv")
+                ppgCsvWriter = FileWriter(ppgFile)
+                ppgCsvWriter?.write("Timestamp,Red,IR\n")
+                createdFiles.add("PPG=${ppgFile.name}")
+                Log.d("BleManager", "PPG CSV file created: ${ppgFile.name}")
+            }
+            
+            if (selectedSensors.contains(SensorType.ACC)) {
+                val accFile = File(linkBandDir, "LinkBand_ACC_${timestamp}.csv")
+                accCsvWriter = FileWriter(accFile)
+                accCsvWriter?.write("Timestamp,X,Y,Z\n")
+                createdFiles.add("ACC=${accFile.name}")
+                Log.d("BleManager", "ACC CSV file created: ${accFile.name}")
+            }
             
             _isRecording.value = true
             Log.d("BleManager", "CSV recording started at: ${linkBandDir.absolutePath}")
-            Log.d("BleManager", "Files: EEG=${eegFile.name}, PPG=${ppgFile.name}, ACC=${accFile.name}")
+            Log.d("BleManager", "Created files for selected sensors: ${createdFiles.joinToString(", ")}")
             
         } catch (e: Exception) {
             Log.e("BleManager", "Failed to start CSV recording", e)
@@ -914,6 +938,7 @@ class BleManager(private val context: Context) {
         }
         
         try {
+            // 생성된 파일들만 닫기
             eegCsvWriter?.close()
             ppgCsvWriter?.close()
             accCsvWriter?.close()
@@ -933,7 +958,7 @@ class BleManager(private val context: Context) {
     }
     
     private fun writeEegToCsv(data: EegData) {
-        if (_isRecording.value && eegCsvWriter != null) {
+        if (_isRecording.value && eegCsvWriter != null && _selectedSensors.value.contains(SensorType.EEG)) {
             try {
                 eegCsvWriter?.write("${data.timestamp},${data.channel1},${data.channel2},${data.leadOff}\n")
                 eegCsvWriter?.flush()
@@ -944,7 +969,7 @@ class BleManager(private val context: Context) {
     }
     
     private fun writePpgToCsv(data: PpgData) {
-        if (_isRecording.value && ppgCsvWriter != null) {
+        if (_isRecording.value && ppgCsvWriter != null && _selectedSensors.value.contains(SensorType.PPG)) {
             try {
                 ppgCsvWriter?.write("${data.timestamp},${data.red},${data.ir}\n")
                 ppgCsvWriter?.flush()
@@ -955,7 +980,7 @@ class BleManager(private val context: Context) {
     }
     
     private fun writeAccToCsv(data: AccData) {
-        if (_isRecording.value && accCsvWriter != null) {
+        if (_isRecording.value && accCsvWriter != null && _selectedSensors.value.contains(SensorType.ACC)) {
             try {
                 accCsvWriter?.write("${data.timestamp},${data.x},${data.y},${data.z}\n")
                 accCsvWriter?.flush()
