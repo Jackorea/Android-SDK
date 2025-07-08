@@ -43,17 +43,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isRecording: StateFlow<Boolean> = bleManager.isRecording
     
     init {
-        // PPG 데이터 변경사항 로그 확인
-        viewModelScope.launch {
-            ppgData.collect { data ->
-                Log.d("MainViewModel", "PPG data updated in ViewModel: ${data.size} samples")
-                if (data.isNotEmpty()) {
-                    val latest = data.last()
-                    Log.d("MainViewModel", "Latest PPG: Red=${latest.red}, IR=${latest.ir}")
-                }
-            }
-        }
-        
         // PPG 상태 변경 로그 확인
         viewModelScope.launch {
             isPpgStarted.collect { started ->

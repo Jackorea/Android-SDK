@@ -560,6 +560,12 @@ class BleManager(private val context: Context) {
                 currentData.addAll(readings)
                 _eegData.value = currentData
                 
+                // 각 샘플의 상세 정보 출력 (앱 UI와 동일한 형식)
+                readings.forEach { sample ->
+                    val leadOffValue = if (sample.leadOff) 1 else 0
+                    Log.d("BleManager", "EEG Sample: Timestamp: ${sample.timestamp.time}, ch1Raw: ${sample.ch1Raw}, ch2Raw: ${sample.ch2Raw}, ch1uV: ${sample.channel1.roundToInt()}µV, ch2uV: ${sample.channel2.roundToInt()}µV, LeadOff: $leadOffValue")
+                }
+                
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_eegData.value.size > lastEegDataSize) {
                     onSensorDataReceived(SensorType.EEG)
@@ -585,6 +591,11 @@ class BleManager(private val context: Context) {
                 currentData.addAll(readings)
                 _ppgData.value = currentData
                 
+                // 각 샘플의 상세 정보 출력 (앱 UI와 동일한 형식)
+                readings.forEach { sample ->
+                    Log.d("BleManager", "PPG Sample: Timestamp: ${sample.timestamp.time}, Red: ${sample.red}, IR: ${sample.ir}")
+                }
+                
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_ppgData.value.size > lastPpgDataSize) {
                     onSensorDataReceived(SensorType.PPG)
@@ -609,6 +620,11 @@ class BleManager(private val context: Context) {
                 val currentData = _accData.value.takeLast(300).toMutableList()
                 currentData.addAll(readings)
                 _accData.value = currentData
+                
+                // 각 샘플의 상세 정보 출력 (앱 UI와 동일한 형식)
+                readings.forEach { sample ->
+                    Log.d("BleManager", "ACC Sample: Timestamp: ${sample.timestamp.time}, X: ${sample.x}, Y: ${sample.y}, Z: ${sample.z}")
+                }
                 
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_accData.value.size > lastAccDataSize) {
