@@ -67,9 +67,11 @@ class SensorDataParser(
             Log.i(TAG, "📊 EEG buffering: ${actualDurationMs}ms worth of data (expected: ${expectedDurationMs}ms)")
         }
         
-        // 패킷 헤더에서 타임스탬프 추출
-        val timeRaw = extractTimestamp(data)
-        var timestamp = timeRaw / configuration.timestampDivisor / configuration.millisecondsToSeconds
+        // 안드로이드 앱에서 데이터 수신 시점의 현재 시간 사용
+        val currentTimeMs = System.currentTimeMillis()
+        // 패킷의 가장 최근 샘플을 현재 시간으로 설정하고, 이전 샘플들은 역순으로 계산
+        val sampleIntervalMs = (1000.0 / configuration.eegSampleRate)
+        var timestamp = currentTimeMs - (actualSampleCount - 1) * sampleIntervalMs
         
         val readings = mutableListOf<EegData>()
         
@@ -112,7 +114,7 @@ class SensorDataParser(
                        configuration.eegResolution * configuration.microVoltMultiplier
             
             val reading = EegData(
-                timestamp = Date((timestamp * 1000).toLong()),
+                timestamp = Date(timestamp.toLong()),
                 leadOff = leadOffNormalized,
                 channel1 = ch1uV,
                 channel2 = ch2uV,
@@ -123,7 +125,7 @@ class SensorDataParser(
             readings.add(reading)
             
             // 다음 샘플을 위한 타임스탬프 증가
-            timestamp += 1.0 / configuration.eegSampleRate
+            timestamp += sampleIntervalMs
         }
         
         return readings
@@ -157,9 +159,11 @@ class SensorDataParser(
                      "processing $actualSampleCount samples (expected: $expectedSampleCount)")
         }
         
-        // 패킷 헤더에서 타임스탬프 추출
-        val timeRaw = extractTimestamp(data)
-        var timestamp = timeRaw / configuration.timestampDivisor / configuration.millisecondsToSeconds
+        // 안드로이드 앱에서 데이터 수신 시점의 현재 시간 사용
+        val currentTimeMs = System.currentTimeMillis()
+        // 패킷의 가장 최근 샘플을 현재 시간으로 설정하고, 이전 샘플들은 역순으로 계산
+        val sampleIntervalMs = (1000.0 / configuration.ppgSampleRate)
+        var timestamp = currentTimeMs - (actualSampleCount - 1) * sampleIntervalMs
         
         val readings = mutableListOf<PpgData>()
         
@@ -181,7 +185,7 @@ class SensorDataParser(
                     (data[i+5].toInt() and 0xFF)
             
             val reading = PpgData(
-                timestamp = Date((timestamp * 1000).toLong()),
+                timestamp = Date(timestamp.toLong()),
                 red = red,
                 ir = ir
             )
@@ -189,7 +193,7 @@ class SensorDataParser(
             readings.add(reading)
             
             // 다음 샘플을 위한 타임스탬프 증가
-            timestamp += 1.0 / configuration.ppgSampleRate
+            timestamp += sampleIntervalMs
         }
         
         return readings
@@ -213,9 +217,8 @@ class SensorDataParser(
             )
         }
         
-        // 패킷 헤더에서 타임스탬프 추출
-        val timeRaw = extractTimestamp(data)
-        var timestamp = timeRaw / configuration.timestampDivisor / configuration.millisecondsToSeconds
+        // 안드로이드 앱에서 데이터 수신 시점의 현재 시간 사용
+        val currentTimeMs = System.currentTimeMillis()
         
         val dataWithoutHeaderCount = data.size - HEADER_SIZE
         if (dataWithoutHeaderCount < sampleSize) {
@@ -227,6 +230,10 @@ class SensorDataParser(
         val sampleCount = dataWithoutHeaderCount / sampleSize
         val readings = mutableListOf<AccData>()
         
+        // 패킷의 가장 최근 샘플을 현재 시간으로 설정하고, 이전 샘플들은 역순으로 계산
+        val sampleIntervalMs = (1000.0 / configuration.accelerometerSampleRate)
+        var timestamp = currentTimeMs - (sampleCount - 1) * sampleIntervalMs
+        
         for (i in 0 until sampleCount) {
             val baseInFullPacket = HEADER_SIZE + (i * sampleSize)
             // 하드웨어 사양에 따라 홀수 번째 바이트 사용
@@ -235,7 +242,7 @@ class SensorDataParser(
             val z = (data[baseInFullPacket + 5].toInt() and 0xFF).toShort()  // data[i+5]
             
             val reading = AccData(
-                timestamp = Date((timestamp * 1000).toLong()),
+                timestamp = Date(timestamp.toLong()),
                 x = x,
                 y = y,
                 z = z
@@ -244,7 +251,7 @@ class SensorDataParser(
             readings.add(reading)
             
             // 다음 샘플을 위한 타임스탬프 증가
-            timestamp += 1.0 / configuration.accelerometerSampleRate
+            timestamp += sampleIntervalMs
         }
         
         return readings

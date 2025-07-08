@@ -1081,7 +1081,7 @@ class BleManager(private val context: Context) {
             if (selectedSensors.contains(SensorType.EEG)) {
                 val eegFile = File(linkBandDir, "LinkBand_EEG_${timestamp}.csv")
                 eegCsvWriter = FileWriter(eegFile)
-                eegCsvWriter?.write("Timestamp,Channel1_uV,Channel2_uV,LeadOff\n")
+                eegCsvWriter?.write("Timestamp_ms,Channel1_uV,Channel2_uV,LeadOff\n")
                 createdFiles.add("EEG=${eegFile.name}")
                 Log.d("BleManager", "EEG CSV file created: ${eegFile.name}")
             }
@@ -1089,7 +1089,7 @@ class BleManager(private val context: Context) {
             if (selectedSensors.contains(SensorType.PPG)) {
                 val ppgFile = File(linkBandDir, "LinkBand_PPG_${timestamp}.csv")
                 ppgCsvWriter = FileWriter(ppgFile)
-                ppgCsvWriter?.write("Timestamp,Red,IR\n")
+                ppgCsvWriter?.write("Timestamp_ms,Red,IR\n")
                 createdFiles.add("PPG=${ppgFile.name}")
                 Log.d("BleManager", "PPG CSV file created: ${ppgFile.name}")
             }
@@ -1097,7 +1097,7 @@ class BleManager(private val context: Context) {
             if (selectedSensors.contains(SensorType.ACC)) {
                 val accFile = File(linkBandDir, "LinkBand_ACC_${timestamp}.csv")
                 accCsvWriter = FileWriter(accFile)
-                accCsvWriter?.write("Timestamp,X,Y,Z\n")
+                accCsvWriter?.write("Timestamp_ms,X,Y,Z\n")
                 createdFiles.add("ACC=${accFile.name}")
                 Log.d("BleManager", "ACC CSV file created: ${accFile.name}")
             }
@@ -1141,7 +1141,8 @@ class BleManager(private val context: Context) {
     private fun writeEegToCsv(data: EegData) {
         if (_isRecording.value && eegCsvWriter != null && _selectedSensors.value.contains(SensorType.EEG)) {
             try {
-                eegCsvWriter?.write("${data.timestamp},${data.channel1},${data.channel2},${data.leadOff}\n")
+                // 타임스탬프를 밀리초 단위로 저장 (더 읽기 쉽고 분석하기 좋음)
+                eegCsvWriter?.write("${data.timestamp.time},${data.channel1},${data.channel2},${data.leadOff}\n")
                 eegCsvWriter?.flush()
             } catch (e: Exception) {
                 Log.e("BleManager", "Error writing EEG to CSV", e)
@@ -1152,7 +1153,8 @@ class BleManager(private val context: Context) {
     private fun writePpgToCsv(data: PpgData) {
         if (_isRecording.value && ppgCsvWriter != null && _selectedSensors.value.contains(SensorType.PPG)) {
             try {
-                ppgCsvWriter?.write("${data.timestamp},${data.red},${data.ir}\n")
+                // 타임스탬프를 밀리초 단위로 저장 (더 읽기 쉽고 분석하기 좋음)
+                ppgCsvWriter?.write("${data.timestamp.time},${data.red},${data.ir}\n")
                 ppgCsvWriter?.flush()
             } catch (e: Exception) {
                 Log.e("BleManager", "Error writing PPG to CSV", e)
@@ -1163,7 +1165,8 @@ class BleManager(private val context: Context) {
     private fun writeAccToCsv(data: AccData) {
         if (_isRecording.value && accCsvWriter != null && _selectedSensors.value.contains(SensorType.ACC)) {
             try {
-                accCsvWriter?.write("${data.timestamp},${data.x},${data.y},${data.z}\n")
+                // 타임스탬프를 밀리초 단위로 저장 (더 읽기 쉽고 분석하기 좋음)
+                accCsvWriter?.write("${data.timestamp.time},${data.x},${data.y},${data.z}\n")
                 accCsvWriter?.flush()
             } catch (e: Exception) {
                 Log.e("BleManager", "Error writing ACC to CSV", e)
