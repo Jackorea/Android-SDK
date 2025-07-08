@@ -28,8 +28,6 @@ import com.example.test.data.BatteryData
 import com.example.test.data.EegData
 import com.example.test.data.PpgData
 import kotlin.math.roundToInt
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -394,9 +392,8 @@ fun DataScreen(
                     if (eegData.isNotEmpty()) {
                         val latest = eegData.takeLast(3)
                         latest.forEach { data ->
-                            val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
                             Text(
-                                text = "${timeFormat.format(data.timestamp)} - CH1: ${data.channel1.roundToInt()}µV, CH2: ${data.channel2.roundToInt()}µV, Lead: ${if (data.leadOff) "OFF" else "ON"}",
+                                text = "Timestamp: ${data.timestamp.time}, ch1uV: ${data.channel1.roundToInt()}µV, ch2uV: ${data.channel2.roundToInt()}µV, Lead: ${if (data.leadOff) "1" else "0"}",
                                 fontSize = 12.sp
                             )
                         }
@@ -418,9 +415,8 @@ fun DataScreen(
                     if (ppgData.isNotEmpty()) {
                         val latest = ppgData.takeLast(3)
                         latest.forEach { data ->
-                            val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
                             Text(
-                                text = "${timeFormat.format(data.timestamp)} - Red: ${data.red}, IR: ${data.ir}",
+                                text = "Timestamp: ${data.timestamp.time}, Red: ${data.red}, IR: ${data.ir}",
                                 fontSize = 12.sp
                             )
                         }
@@ -442,9 +438,8 @@ fun DataScreen(
                     if (accData.isNotEmpty()) {
                         val latest = accData.takeLast(3)
                         latest.forEach { data ->
-                            val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
                             Text(
-                                text = "${timeFormat.format(data.timestamp)} - X: ${data.x}, Y: ${data.y}, Z: ${data.z}",
+                                text = "Timestamp: ${data.timestamp.time}, X: ${data.x}, Y: ${data.y}, Z: ${data.z}",
                                 fontSize = 12.sp
                             )
                         }
