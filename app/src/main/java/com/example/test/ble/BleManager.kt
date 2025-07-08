@@ -135,6 +135,17 @@ class BleManager(private val context: Context) {
     private var accCsvWriter: FileWriter? = null
     private var recordingStartTime: Long = 0
     
+    // 센서 활성화 큐 관리 변수들 추가
+    private var sensorActivationQueue = mutableListOf<SensorType>()
+    private var currentActivatingSensor: SensorType? = null
+    private var sensorTimeoutRunnable: Runnable? = null
+    private val sensorTimeoutMs = 8000L // 8초 타임아웃
+    
+    // 각 센서별 마지막 데이터 수신 크기 추적
+    private var lastEegDataSize = 0
+    private var lastPpgDataSize = 0  
+    private var lastAccDataSize = 0
+    
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
@@ -549,6 +560,11 @@ class BleManager(private val context: Context) {
                 currentData.addAll(readings)
                 _eegData.value = currentData
                 
+                // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
+                if (_eegData.value.size > lastEegDataSize) {
+                    onSensorDataReceived(SensorType.EEG)
+                }
+                
                 // CSV 파일에 저장
                 readings.forEach { data ->
                     writeEegToCsv(data)
@@ -569,6 +585,11 @@ class BleManager(private val context: Context) {
                 currentData.addAll(readings)
                 _ppgData.value = currentData
                 
+                // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
+                if (_ppgData.value.size > lastPpgDataSize) {
+                    onSensorDataReceived(SensorType.PPG)
+                }
+                
                 // CSV 파일에 저장
                 readings.forEach { data ->
                     writePpgToCsv(data)
@@ -588,6 +609,11 @@ class BleManager(private val context: Context) {
                 val currentData = _accData.value.takeLast(300).toMutableList()
                 currentData.addAll(readings)
                 _accData.value = currentData
+                
+                // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
+                if (_accData.value.size > lastAccDataSize) {
+                    onSensorDataReceived(SensorType.ACC)
+                }
                 
                 // CSV 파일에 저장
                 readings.forEach { data ->
@@ -826,8 +852,7 @@ class BleManager(private val context: Context) {
             return
         }
         
-        Log.d("BleManager", "=== 센서 모니터링 시작: $selectedSensors ===")
-        Log.d("BleManager", "Services ready: $servicesReady")
+        Log.d("BleManager", "=== 센서 큐 기반 활성화 시작: $selectedSensors ===")
         
         bluetoothGatt?.let { gatt ->
             
@@ -835,122 +860,48 @@ class BleManager(private val context: Context) {
             Log.d("BleManager", "1단계: 모든 센서 notification 비활성화")
             disableAllSensorNotifications()
             
-            // 2단계: 선택된 센서만 활성화
+            // 2단계: 선택된 센서들을 큐에 추가하고 순차 활성화 시작
             handler.postDelayed({
-                Log.d("BleManager", "2단계: 선택된 센서만 활성화 시작")
+                Log.d("BleManager", "2단계: 센서 큐 생성 및 순차 활성화 시작")
                 
-                // 서비스가 완전히 준비되지 않았으면 추가 딜레이 (안정성 복원)
-                val initialDelay = if (!servicesReady) {
-                    Log.d("BleManager", "Services not fully ready, adding initial delay...")
-                    1500L // 안정성을 위해 복원
-                } else {
-                    0L
+                // 큐 초기화
+                sensorActivationQueue.clear()
+                currentActivatingSensor = null
+                
+                // 디바이스 활성화를 위해 항상 EEG write 명령 전송 (선택되지 않아도)
+                val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
+                eegWriteChar?.let {
+                    it.value = "start".toByteArray()
+                    gatt.writeCharacteristic(it)
+                    Log.d("BleManager", "Device activation command sent via EEG write")
                 }
                 
+                // 선택된 센서들을 순서대로 큐에 추가 (EEG → ACC → PPG 순서)
+                if (selectedSensors.contains(SensorType.EEG)) {
+                    sensorActivationQueue.add(SensorType.EEG)
+                }
+                if (selectedSensors.contains(SensorType.ACC)) {
+                    sensorActivationQueue.add(SensorType.ACC)
+                }
+                if (selectedSensors.contains(SensorType.PPG)) {
+                    sensorActivationQueue.add(SensorType.PPG)
+                }
+                
+                Log.d("BleManager", "센서 활성화 큐 생성됨: $sensorActivationQueue")
+                
+                // 서비스가 완전히 준비되지 않았으면 추가 딜레이
+                val initialDelay = if (!servicesReady) {
+                    Log.d("BleManager", "Services not fully ready, adding initial delay...")
+                    1500L
+                } else {
+                    500L
+                }
+                
+                // 큐 기반 순차 활성화 시작
                 handler.postDelayed({
-                    Log.d("BleManager", "Starting selected sensor activation sequence...")
-                    
-                    // 파이썬과 동일한 방식: 각 센서별 독립적 활성화 (안정성 고려)
-                    var currentDelay = 0L
-                    
-                    // 1. EEG 센서 활성화 (선택된 경우)
-                    if (selectedSensors.contains(SensorType.EEG)) {
-                        handler.postDelayed({
-                            Log.d("BleManager", "🧠 Starting EEG sensor...")
-                            val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
-                            eegWriteChar?.let {
-                                Log.d("BleManager", "Sending EEG start command...")
-                                it.value = "start".toByteArray()
-                                gatt.writeCharacteristic(it)
-                                
-                                // EEG notification 설정 (200ms 후)
-                                handler.postDelayed({
-                                    val eegNotifyChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_NOTIFY_CHAR_UUID)
-                                    eegNotifyChar?.let { 
-                                        setupNotification(gatt, it, "EEG")
-                                        _isEegStarted.value = true
-                                        Log.d("BleManager", "✅ EEG activated and notification enabled")
-                                    }
-                                }, 200)
-                            } ?: Log.e("BleManager", "EEG write characteristic not found")
-                        }, currentDelay)
-                        currentDelay += 1500 // EEG 안정화 시간 복원
-                    } else {
-                        // EEG가 선택되지 않았어도 디바이스 활성화를 위해 EEG write 전송
-                        handler.postDelayed({
-                            Log.d("BleManager", "🔧 Activating device (EEG write for system activation)...")
-                            val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
-                            eegWriteChar?.let {
-                                it.value = "start".toByteArray()
-                                gatt.writeCharacteristic(it)
-                            }
-                        }, currentDelay)
-                        currentDelay += 1500
-                    }
-                    
-                    // 2. ACC 센서 활성화 (선택된 경우) - 2번째 센서 특별 처리
-                    if (selectedSensors.contains(SensorType.ACC)) {
-                        handler.postDelayed({
-                            Log.d("BleManager", "🚀 Starting ACC sensor (2nd sensor - special handling)...")
-                            
-                            // ACC 서비스와 특성 재확인
-                            val accService = gatt.getService(ACCELEROMETER_SERVICE_UUID)
-                            if (accService == null) {
-                                Log.e("BleManager", "❌ ACC service not found during activation!")
-                                return@postDelayed
-                            }
-                            
-                            val accChar = accService.getCharacteristic(ACCELEROMETER_CHAR_UUID)
-                            accChar?.let { 
-                                Log.d("BleManager", "ACC characteristic found, properties: ${it.properties}")
-                                
-                                // ACC notification 설정 전 추가 대기 (안정성 복원)
-                                handler.postDelayed({
-                                    setupNotification(gatt, it, "ACC")
-                                    _isAccStarted.value = true
-                                    Log.d("BleManager", "✅ ACC notification enabled (2nd sensor with extra delay)")
-                                }, 600) // ACC notification 설정 전 600ms 대기
-                                
-                            } ?: Log.e("BleManager", "❌ ACC characteristic not found during activation!")
-                        }, currentDelay)
-                        currentDelay += 2000 // ACC 대기 시간 복원
-                    }
-                    
-                    // 3. PPG 센서 활성화 (가장 마지막, 선택된 경우)
-                    if (selectedSensors.contains(SensorType.PPG)) {
-                        handler.postDelayed({
-                            Log.d("BleManager", "❤️ Starting PPG sensor (final step)...")
-                            
-                            // PPG 서비스와 특성 다시 확인
-                            val ppgService = gatt.getService(PPG_SERVICE_UUID)
-                            if (ppgService == null) {
-                                Log.e("BleManager", "❌ PPG service not found during activation!")
-                                return@postDelayed
-                            }
-                            
-                            val ppgChar = ppgService.getCharacteristic(PPG_CHAR_UUID)
-                            ppgChar?.let { 
-                                Log.d("BleManager", "PPG characteristic found, properties: ${it.properties}")
-                                
-                                // PPG notification 설정 전 추가 대기 (안정성 복원)
-                                handler.postDelayed({
-                                    setupNotification(gatt, it, "PPG")
-                                    _isPpgStarted.value = true
-                                    Log.d("BleManager", "✅ PPG notification enabled (with extra delay)")
-                                }, 500) // notification 설정 전 500ms 대기
-                                
-                            } ?: Log.e("BleManager", "❌ PPG characteristic not found during activation!")
-                        }, currentDelay)
-                        currentDelay += 1500 // PPG 대기 시간 복원
-                    }
-                    
-                    // 모든 센서 활성화 완료 표시
-                    handler.postDelayed({
-                        _isReceivingData.value = true
-                        Log.d("BleManager", "🚀 Selected sensors activation completed - only selected sensors transmitting data!")
-                    }, currentDelay)
-                    
+                    activateNextSensorInQueue()
                 }, initialDelay)
+                
             }, 1000) // 1단계 완료 후 1초 대기
         }
     }
@@ -958,14 +909,24 @@ class BleManager(private val context: Context) {
     fun stopSelectedSensors() {
         Log.d("BleManager", "=== 수집 중지: 모든 센서 펌웨어 notify 중단 ===")
         
-        // 모든 pending handler 작업 취소 (PPG 재활성화 방지)
+        // 모든 pending handler 작업 취소 (센서 활성화 큐 포함)
         handler.removeCallbacksAndMessages(null)
         Log.d("BleManager", "🛑 All pending handler callbacks cancelled")
+        
+        // 센서 활성화 큐 상태 초기화
+        sensorActivationQueue.clear()
+        currentActivatingSensor = null
+        sensorTimeoutRunnable = null
+        
+        // 데이터 크기 추적 변수 초기화
+        lastEegDataSize = 0
+        lastPpgDataSize = 0
+        lastAccDataSize = 0
         
         // 모든 센서 notification 비활성화 (펌웨어 데이터 전송 완전 중단)
         disableAllSensorNotifications()
         
-        Log.d("BleManager", "🛑 All sensors stopped - firmware data transmission completely stopped")
+        Log.d("BleManager", "🛑 All sensors stopped - firmware data transmission completely stopped, queue cleared")
     }
     
     // CSV 기록 제어 함수들
@@ -1003,7 +964,7 @@ class BleManager(private val context: Context) {
             if (selectedSensors.contains(SensorType.EEG)) {
                 val eegFile = File(linkBandDir, "LinkBand_EEG_${timestamp}.csv")
                 eegCsvWriter = FileWriter(eegFile)
-                eegCsvWriter?.write("Timestamp_ms,Channel1_uV,Channel2_uV,LeadOff\n")
+                eegCsvWriter?.write("Timestamp_ms,Ch1_Raw,Ch2_Raw,Channel1_uV,Channel2_uV,LeadOff\n")
                 createdFiles.add("EEG=${eegFile.name}")
                 Log.d("BleManager", "EEG CSV file created: ${eegFile.name}")
             }
@@ -1063,8 +1024,10 @@ class BleManager(private val context: Context) {
     private fun writeEegToCsv(data: EegData) {
         if (_isRecording.value && eegCsvWriter != null && _selectedSensors.value.contains(SensorType.EEG)) {
             try {
+                // leadOff를 숫자로 변환: true -> 1, false -> 0
+                val leadOffValue = if (data.leadOff) 1 else 0
                 // 타임스탬프를 밀리초 단위로 저장 (더 읽기 쉽고 분석하기 좋음)
-                eegCsvWriter?.write("${data.timestamp.time},${data.channel1},${data.channel2},${data.leadOff}\n")
+                eegCsvWriter?.write("${data.timestamp.time},${data.ch1Raw},${data.ch2Raw},${data.channel1},${data.channel2},$leadOffValue\n")
                 eegCsvWriter?.flush()
             } catch (e: Exception) {
                 Log.e("BleManager", "Error writing EEG to CSV", e)
@@ -1092,6 +1055,110 @@ class BleManager(private val context: Context) {
                 accCsvWriter?.flush()
             } catch (e: Exception) {
                 Log.e("BleManager", "Error writing ACC to CSV", e)
+            }
+        }
+    }
+
+    // 센서 활성화 큐 관리 함수들
+    private fun activateNextSensorInQueue() {
+        if (sensorActivationQueue.isEmpty()) {
+            Log.d("BleManager", "🎉 All sensors in queue have been activated successfully!")
+            _isReceivingData.value = true
+            currentActivatingSensor = null
+            return
+        }
+        
+        val nextSensor = sensorActivationQueue.removeAt(0)
+        currentActivatingSensor = nextSensor
+        
+        Log.d("BleManager", "🚀 Activating sensor: $nextSensor (${sensorActivationQueue.size} remaining in queue)")
+        
+        // 타임아웃 설정
+        sensorTimeoutRunnable = Runnable {
+            Log.w("BleManager", "⏰ Timeout waiting for $nextSensor data, proceeding to next sensor...")
+            currentActivatingSensor = null
+            activateNextSensorInQueue()
+        }
+        handler.postDelayed(sensorTimeoutRunnable!!, sensorTimeoutMs)
+        
+        // 센서별 활성화 실행
+        when (nextSensor) {
+            SensorType.EEG -> {
+                lastEegDataSize = _eegData.value.size
+                activateEegSensorInternal()
+            }
+            SensorType.ACC -> {
+                lastAccDataSize = _accData.value.size
+                activateAccSensorInternal()
+            }
+            SensorType.PPG -> {
+                lastPpgDataSize = _ppgData.value.size
+                activatePpgSensorInternal()
+            }
+        }
+    }
+    
+    private fun onSensorDataReceived(sensorType: SensorType) {
+        // 현재 활성화 대기 중인 센서와 일치하는지 확인
+        if (currentActivatingSensor == sensorType) {
+            Log.d("BleManager", "✅ $sensorType data confirmed - proceeding to next sensor")
+            
+            // 타임아웃 취소
+            sensorTimeoutRunnable?.let { handler.removeCallbacks(it) }
+            sensorTimeoutRunnable = null
+            
+            currentActivatingSensor = null
+            
+            // 500ms 대기 후 다음 센서 활성화 (안정성을 위해)
+            handler.postDelayed({
+                activateNextSensorInQueue()
+            }, 500)
+        }
+    }
+    
+    private fun activateEegSensorInternal() {
+        bluetoothGatt?.let { gatt ->
+            val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
+            eegWriteChar?.let {
+                it.value = "start".toByteArray()
+                gatt.writeCharacteristic(it)
+                
+                handler.postDelayed({
+                    val eegNotifyChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_NOTIFY_CHAR_UUID)
+                    eegNotifyChar?.let { notifyChar ->
+                        setupNotification(gatt, notifyChar, "EEG")
+                        _isEegStarted.value = true
+                        Log.d("BleManager", "EEG sensor activated, waiting for data confirmation...")
+                    }
+                }, 200)
+            }
+        }
+    }
+    
+    private fun activateAccSensorInternal() {
+        bluetoothGatt?.let { gatt ->
+            val accService = gatt.getService(ACCELEROMETER_SERVICE_UUID)
+            val accChar = accService?.getCharacteristic(ACCELEROMETER_CHAR_UUID)
+            accChar?.let { 
+                handler.postDelayed({
+                    setupNotification(gatt, it, "ACC")
+                    _isAccStarted.value = true
+                    Log.d("BleManager", "ACC sensor activated, waiting for data confirmation...")
+                }, 600)
+            }
+        }
+    }
+    
+    private fun activatePpgSensorInternal() {
+        bluetoothGatt?.let { gatt ->
+            val ppgService = gatt.getService(PPG_SERVICE_UUID)
+            val ppgChar = ppgService?.getCharacteristic(PPG_CHAR_UUID)
+            ppgChar?.let { 
+                handler.postDelayed({
+                    setupNotification(gatt, it, "PPG")
+                    _isPpgStarted.value = true
+                    Log.d("BleManager", "PPG sensor activated, waiting for data confirmation...")
+                }, 500)
             }
         }
     }
