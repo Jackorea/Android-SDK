@@ -5,14 +5,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -29,7 +35,13 @@ import com.example.test.data.EegData
 import com.example.test.data.PpgData
 import com.example.test.data.AccelerometerMode
 import com.example.test.data.ProcessedAccData
+import com.example.test.data.CollectionMode
+import com.example.test.data.SensorBatchConfiguration
 import kotlin.math.roundToInt
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Phone
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +61,9 @@ fun DataScreen(
     connectedDeviceName: String?,
     accelerometerMode: AccelerometerMode,
     processedAccData: List<ProcessedAccData>,
+    // 배치 수집 관련 매개변수들 추가
+    selectedCollectionMode: CollectionMode,
+    getSensorConfiguration: (SensorType) -> SensorBatchConfiguration?,
     onDisconnect: () -> Unit,
     onNavigateToScan: () -> Unit,
     onSelectSensor: (SensorType) -> Unit,
@@ -59,7 +74,12 @@ fun DataScreen(
     onStopRecording: () -> Unit,
     onShowFileList: () -> Unit,
     onToggleAutoReconnect: () -> Unit,
-    onSetAccelerometerMode: (AccelerometerMode) -> Unit
+    onSetAccelerometerMode: (AccelerometerMode) -> Unit,
+    // 배치 수집 콜백 함수들 추가
+    onCollectionModeChange: (CollectionMode) -> Unit,
+    onSampleCountChange: (SensorType, Int, String) -> Unit,
+    onSecondsChange: (SensorType, Int, String) -> Unit,
+    onMinutesChange: (SensorType, Int, String) -> Unit
 ) {
     // 경고 다이얼로그 상태
     var showStopCollectionDialog by remember { mutableStateOf(false) }
@@ -103,14 +123,17 @@ fun DataScreen(
                     fontWeight = FontWeight.Bold
                 )
                 
-                IconButton(
-                    onClick = onShowFileList
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "저장된 파일 보기",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                Row {
+                    // 저장된 파일 보기 아이콘만 유지
+                    IconButton(
+                        onClick = onShowFileList
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "저장된 파일 보기",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
         }
@@ -200,284 +223,367 @@ fun DataScreen(
             Card(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text(
-                        text = "센서 제어",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                    
-                    // 센서 선택 섹션
-                    Text(
-                        text = "수신할 센서 선택:",
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 16.sp,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                    
-                    // EEG 센서 선택
+                    // 헤더
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Checkbox(
-                                checked = selectedSensors.contains(SensorType.EEG),
-                                onCheckedChange = { checked ->
-                                    if (checked) {
-                                        onSelectSensor(SensorType.EEG)
-                                    } else {
-                                        onDeselectSensor(SensorType.EEG)
-                                    }
-                                },
-                                enabled = isConnected && !isReceivingData
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "데이터 수집 설정",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
                             )
                             Text(
-                                text = "EEG 센서",
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
-                        if (isEegStarted) {
-                            Text(
-                                text = "수신 중",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    
-                    // PPG 센서 선택
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = selectedSensors.contains(SensorType.PPG),
-                                onCheckedChange = { checked ->
-                                    if (checked) {
-                                        onSelectSensor(SensorType.PPG)
-                                    } else {
-                                        onDeselectSensor(SensorType.PPG)
-                                    }
-                                },
-                                enabled = isConnected && !isReceivingData
-                            )
-                            Text(
-                                text = "PPG 센서",
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
-                        if (isPpgStarted) {
-                            Text(
-                                text = "수신 중",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    
-                    // ACC 센서 선택
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = selectedSensors.contains(SensorType.ACC),
-                                onCheckedChange = { checked ->
-                                    if (checked) {
-                                        onSelectSensor(SensorType.ACC)
-                                    } else {
-                                        onDeselectSensor(SensorType.ACC)
-                                    }
-                                },
-                                enabled = isConnected && !isReceivingData
-                            )
-                            Text(
-                                text = "ACC 센서",
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
-                        if (isAccStarted) {
-                            Text(
-                                text = "수신 중",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    
-                    // ACC 모드 선택 토글 (스위프트와 동일한 세그먼트 컨트롤 스타일)
-                    if (selectedSensors.contains(SensorType.ACC)) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "ACC 표시 모드:",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        
-                        // 세그먼트 컨트롤 스타일의 토글
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(0.dp)
-                        ) {
-                            // 원시값 버튼
-                            Button(
-                                onClick = { onSetAccelerometerMode(AccelerometerMode.RAW) },
-                                enabled = isConnected && !isRecording,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (accelerometerMode == AccelerometerMode.RAW) 
-                                        MaterialTheme.colorScheme.primary 
-                                    else 
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                ),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                                    topStart = 8.dp, 
-                                    bottomStart = 8.dp, 
-                                    topEnd = 0.dp, 
-                                    bottomEnd = 0.dp
-                                )
-                            ) {
-                                Text(
-                                    text = "원시값",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = if (accelerometerMode == AccelerometerMode.RAW) 
-                                        MaterialTheme.colorScheme.onPrimary 
-                                    else 
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            
-                            // 움직임 버튼
-                            Button(
-                                onClick = { onSetAccelerometerMode(AccelerometerMode.MOTION) },
-                                enabled = isConnected && !isRecording,
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (accelerometerMode == AccelerometerMode.MOTION) 
-                                        MaterialTheme.colorScheme.primary 
-                                    else 
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                ),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                                    topStart = 0.dp, 
-                                    bottomStart = 0.dp, 
-                                    topEnd = 8.dp, 
-                                    bottomEnd = 8.dp
-                                )
-                            ) {
-                                Text(
-                                    text = "움직임",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = if (accelerometerMode == AccelerometerMode.MOTION) 
-                                        MaterialTheme.colorScheme.onPrimary 
-                                    else 
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        
-                        // 모드 설명
-                        Text(
-                            text = accelerometerMode.description,
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    
-                    // 선택된 센서 시작/중지 버튼
-                    Button(
-                        onClick = {
-                            if (isReceivingData) {
-                                // 수집 중지 시 기록 중이면 경고 다이얼로그 표시
-                                if (isRecording) {
-                                    showStopCollectionDialog = true
-                                } else {
-                                    onStopSelectedSensors()
-                                }
-                            } else {
-                                onStartSelectedSensors()
-                            }
-                        },
-                        enabled = isConnected && selectedSensors.isNotEmpty(),
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isReceivingData) 
-                                MaterialTheme.colorScheme.error 
-                            else 
-                                MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text(
-                            text = if (isReceivingData) 
-                                "🛑 수집 중지" 
-                            else 
-                                "▶️ 수집 시작 (${selectedSensors.size}개)",
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    // CSV 기록 버튼 (센서가 수신 중일 때만 표시)
-                    if (isReceivingData) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        Button(
-                            onClick = if (isRecording) onStopRecording else onStartRecording,
-                            enabled = isConnected && isReceivingData,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isRecording) 
-                                    MaterialTheme.colorScheme.error 
-                                else 
-                                    MaterialTheme.colorScheme.tertiary
-                            )
-                        ) {
-                            Text(
-                                text = if (isRecording) 
-                                    "⏹️ 기록 중지" 
-                                else 
-                                    "📝 기록 시작",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        
-                        if (isRecording) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "📁 CSV 파일로 데이터 기록 중...",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.primary,
+                                text = "데이터 수집 설정",
+                                style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Medium
                             )
+                        }
+                        
+                        // 모니터링 상태 표시
+                        if (isReceivingData) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "활성",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "수집 중",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                    
+                    // 수집 모드 선택
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "수집 모드",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        // 세그먼트 컨트롤 스타일
+                        Row(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            val modes = listOf(
+                                CollectionMode.SAMPLE_COUNT to "샘플 수",
+                                CollectionMode.SECONDS to "시간(초)",
+                                CollectionMode.MINUTES to "시간(분)"
+                            )
+                            
+                            modes.forEachIndexed { index, (mode, displayName) ->
+                                val isSelected = selectedCollectionMode == mode
+                                
+                                Button(
+                                    onClick = { 
+                                        if (!isReceivingData && selectedCollectionMode != mode) {
+                                            onCollectionModeChange(mode) 
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    enabled = !isReceivingData,
+                                    colors = if (isSelected) {
+                                        ButtonDefaults.buttonColors()
+                                    } else {
+                                        ButtonDefaults.outlinedButtonColors()
+                                    },
+                                    shape = when (index) {
+                                        0 -> RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 0.dp, bottomEnd = 0.dp)
+                                        modes.size - 1 -> RoundedCornerShape(topStart = 0.dp, bottomStart = 0.dp, topEnd = 8.dp, bottomEnd = 8.dp)
+                                        else -> RoundedCornerShape(0.dp)
+                                    }
+                                ) {
+                                    Text(
+                                        text = displayName,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 센서별 설정
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val title = when (selectedCollectionMode) {
+                            CollectionMode.SAMPLE_COUNT -> "센서별 샘플 수 설정"
+                            CollectionMode.SECONDS -> "센서별 수집 시간 (초)"
+                            CollectionMode.MINUTES -> "센서별 수집 시간 (분)"
+                        }
+                        
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        val sensors = listOf(SensorType.EEG, SensorType.PPG, SensorType.ACC)
+                        
+                        sensors.forEach { sensorType ->
+                            val config = getSensorConfiguration(sensorType)
+                            if (config != null) {
+                                SensorConfigRow(
+                                    sensorType = sensorType,
+                                    config = config,
+                                    selectedCollectionMode = selectedCollectionMode,
+                                    isSelected = selectedSensors.contains(sensorType),
+                                    isEnabled = !isReceivingData,
+                                    onSampleCountChange = onSampleCountChange,
+                                    onSecondsChange = onSecondsChange,
+                                    onMinutesChange = onMinutesChange
+                                )
+                            }
+                        }
+                    }
+                    
+                    // 센서 선택
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "센서 선택",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        val sensors = listOf(
+                            SensorType.EEG to "EEG",
+                            SensorType.PPG to "PPG",
+                            SensorType.ACC to "ACC"
+                        )
+                        
+                        sensors.forEach { (sensorType, displayName) ->
+                            SensorCheckboxItem(
+                                sensorType = sensorType,
+                                displayName = displayName,
+                                checked = selectedSensors.contains(sensorType),
+                                isStarted = when (sensorType) {
+                                    SensorType.EEG -> isEegStarted
+                                    SensorType.PPG -> isPpgStarted
+                                    SensorType.ACC -> isAccStarted
+                                },
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        onSelectSensor(sensorType)
+                                    } else {
+                                        onDeselectSensor(sensorType)
+                                    }
+                                },
+                                enabled = isConnected && !isReceivingData
+                            )
+                        }
+                    }
+                    
+                    // ACC 모드 선택 (ACC가 선택된 경우)
+                    if (selectedSensors.contains(SensorType.ACC)) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "ACC 표시 모드",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Button(
+                                    onClick = { onSetAccelerometerMode(AccelerometerMode.RAW) },
+                                    enabled = isConnected && !isReceivingData,
+                                    modifier = Modifier.weight(1f),
+                                    colors = if (accelerometerMode == AccelerometerMode.RAW) {
+                                        ButtonDefaults.buttonColors()
+                                    } else {
+                                        ButtonDefaults.outlinedButtonColors()
+                                    },
+                                    shape = RoundedCornerShape(
+                                        topStart = 8.dp, 
+                                        bottomStart = 8.dp, 
+                                        topEnd = 0.dp, 
+                                        bottomEnd = 0.dp
+                                    )
+                                ) {
+                                    Text(
+                                        text = "원시값",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                
+                                Button(
+                                    onClick = { onSetAccelerometerMode(AccelerometerMode.MOTION) },
+                                    enabled = isConnected && !isReceivingData,
+                                    modifier = Modifier.weight(1f),
+                                    colors = if (accelerometerMode == AccelerometerMode.MOTION) {
+                                        ButtonDefaults.buttonColors()
+                                    } else {
+                                        ButtonDefaults.outlinedButtonColors()
+                                    },
+                                    shape = RoundedCornerShape(
+                                        topStart = 0.dp, 
+                                        bottomStart = 0.dp, 
+                                        topEnd = 8.dp, 
+                                        bottomEnd = 8.dp
+                                    )
+                                ) {
+                                    Text(
+                                        text = "움직임",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                            
+                            Text(
+                                text = accelerometerMode.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    // 컨트롤 버튼
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // 데이터 수집 컨트롤
+                        if (isReceivingData) {
+                            Button(
+                                onClick = {
+                                    if (isRecording) {
+                                        showStopCollectionDialog = true
+                                    } else {
+                                        onStopSelectedSensors()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("수집 중지")
+                            }
+                        } else {
+                            Button(
+                                onClick = { onStartSelectedSensors() },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = isConnected && selectedSensors.isNotEmpty()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("수집 시작 (${selectedSensors.size}개)")
+                            }
+                        }
+                        
+                        // 기록 컨트롤 (수집 시작 후 표시)
+                        if (isReceivingData) {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                )
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "데이터 기록",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    
+                                    if (isRecording) {
+                                        Button(
+                                            onClick = { onStopRecording() },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.error
+                                            )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("기록 중지")
+                                        }
+                                        
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "기록 중",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                            Text(
+                                                text = "데이터를 기록하고 있습니다...",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = { onStartRecording() },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("기록 시작")
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -933,6 +1039,176 @@ fun CsvFileItem(file: java.io.File, onFileClick: (java.io.File) -> Unit) {
             ) {
                 Text("미리보기")
             }
+        }
+    }
+} 
+
+@Composable
+private fun SensorConfigRow(
+    sensorType: SensorType,
+    config: SensorBatchConfiguration,
+    selectedCollectionMode: CollectionMode,
+    isSelected: Boolean,
+    isEnabled: Boolean,
+    onSampleCountChange: (SensorType, Int, String) -> Unit,
+    onSecondsChange: (SensorType, Int, String) -> Unit,
+    onMinutesChange: (SensorType, Int, String) -> Unit
+) {
+    var currentText by remember(sensorType, selectedCollectionMode) {
+        mutableStateOf(
+            when (selectedCollectionMode) {
+                CollectionMode.SAMPLE_COUNT -> config.sampleCountText
+                CollectionMode.SECONDS -> config.secondsText
+                CollectionMode.MINUTES -> config.minutesText
+            }
+        )
+    }
+    
+    // 디폴트값 설정
+    val defaultValue = when (selectedCollectionMode) {
+        CollectionMode.SAMPLE_COUNT -> when (sensorType) {
+            SensorType.EEG -> "250"
+            SensorType.PPG -> "50"
+            SensorType.ACC -> "25"
+        }
+        CollectionMode.SECONDS -> "1"
+        CollectionMode.MINUTES -> "1"
+    }
+    
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = when (sensorType) {
+                    SensorType.EEG -> Icons.Default.Star
+                    SensorType.PPG -> Icons.Default.Favorite
+                    SensorType.ACC -> Icons.Default.Phone
+                },
+                contentDescription = null,
+                tint = if (isSelected) {
+                    when (sensorType) {
+                        SensorType.EEG -> androidx.compose.ui.graphics.Color(0xFF9C27B0)
+                        SensorType.PPG -> androidx.compose.ui.graphics.Color.Red
+                        SensorType.ACC -> androidx.compose.ui.graphics.Color.Blue
+                    }
+                } else androidx.compose.ui.graphics.Color.Gray,
+                modifier = Modifier.size(16.dp)
+            )
+            
+            Text(
+                text = when (sensorType) {
+                    SensorType.EEG -> "EEG"
+                    SensorType.PPG -> "PPG"
+                    SensorType.ACC -> "ACC"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (isSelected) MaterialTheme.colorScheme.onSurface else androidx.compose.ui.graphics.Color.Gray
+            )
+        }
+        
+        OutlinedTextField(
+            value = currentText,
+            onValueChange = { newValue ->
+                currentText = newValue
+                when (selectedCollectionMode) {
+                    CollectionMode.SAMPLE_COUNT -> {
+                        val count = newValue.toIntOrNull() ?: 0
+                        onSampleCountChange(sensorType, count, newValue)
+                    }
+                    CollectionMode.SECONDS -> {
+                        val seconds = newValue.toIntOrNull() ?: 0
+                        onSecondsChange(sensorType, seconds, newValue)
+                    }
+                    CollectionMode.MINUTES -> {
+                        val minutes = newValue.toIntOrNull() ?: 0
+                        onMinutesChange(sensorType, minutes, newValue)
+                    }
+                }
+            },
+            modifier = Modifier.width(80.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            textStyle = MaterialTheme.typography.bodySmall,
+            enabled = isSelected && isEnabled,
+            singleLine = true,
+            placeholder = {
+                Text(
+                    text = defaultValue,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+        )
+    }
+}
+
+@Composable
+private fun SensorCheckboxItem(
+    sensorType: SensorType,
+    displayName: String,
+    checked: Boolean,
+    isStarted: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean
+) {
+    val sensorIcon = when (sensorType) {
+        SensorType.EEG -> Icons.Default.Star
+        SensorType.PPG -> Icons.Default.Favorite
+        SensorType.ACC -> Icons.Default.Phone
+    }
+    
+    val sensorColor = when (sensorType) {
+        SensorType.EEG -> androidx.compose.ui.graphics.Color(0xFF9C27B0)
+        SensorType.PPG -> androidx.compose.ui.graphics.Color.Red
+        SensorType.ACC -> androidx.compose.ui.graphics.Color.Blue
+    }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Checkbox(
+                checked = checked,
+                onCheckedChange = { onCheckedChange(it) },
+                colors = CheckboxDefaults.colors(
+                    checkedColor = sensorColor
+                ),
+                enabled = enabled
+            )
+            
+            Icon(
+                imageVector = sensorIcon,
+                contentDescription = null,
+                tint = if (checked) sensorColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+            
+            Text(
+                text = displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (checked) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        
+        if (isStarted) {
+            Text(
+                text = "수집 중",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 } 

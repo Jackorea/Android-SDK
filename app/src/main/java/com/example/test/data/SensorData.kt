@@ -57,4 +57,64 @@ data class SensorDataState(
 )
 
 // 파싱 에러를 위한 커스텀 예외 클래스
-class SensorDataParsingException(message: String) : Exception(message) 
+class SensorDataParsingException(message: String) : Exception(message)
+
+// 데이터 수집 모드를 정의하는 enum
+enum class CollectionMode(val description: String) {
+    SAMPLE_COUNT("샘플 수"),
+    SECONDS("초단위"),
+    MINUTES("분단위");
+    
+    companion object {
+        val allCases = values().toList()
+    }
+}
+
+// 각 센서별 수집 설정을 관리하는 데이터 클래스
+data class SensorBatchConfiguration(
+    // 샘플 수 기반 수집 시 배치 크기
+    var sampleCount: Int,
+    // 초 단위 시간 기반 수집 시 간격
+    var seconds: Int,
+    // 분 단위 시간 기반 수집 시 간격 (기본값: 1분)
+    var minutes: Int,
+    
+    // UI 텍스트 필드용 문자열들 (입력 중 임시 값 포함)
+    var sampleCountText: String = sampleCount.toString(),
+    var secondsText: String = seconds.toString(),
+    var minutesText: String = minutes.toString()
+) {
+    companion object {
+        // 센서 타입별 최적화된 기본 설정값을 제공
+        fun defaultConfiguration(sensorType: com.example.test.ble.SensorType): SensorBatchConfiguration {
+            return when (sensorType) {
+                com.example.test.ble.SensorType.EEG -> SensorBatchConfiguration(
+                    sampleCount = 250, 
+                    seconds = 1, 
+                    minutes = 1
+                )
+                com.example.test.ble.SensorType.PPG -> SensorBatchConfiguration(
+                    sampleCount = 50, 
+                    seconds = 1, 
+                    minutes = 1
+                )
+                com.example.test.ble.SensorType.ACC -> SensorBatchConfiguration(
+                    sampleCount = 25, 
+                    seconds = 1, 
+                    minutes = 1
+                )
+            }
+        }
+    }
+}
+
+// 배치 데이터 수집 설정
+data class DataCollectionConfig(
+    val sensorType: com.example.test.ble.SensorType,
+    val mode: DataCollectionMode
+) {
+    sealed class DataCollectionMode {
+        data class SampleCount(val count: Int) : DataCollectionMode()
+        data class TimeInterval(val intervalSeconds: Long) : DataCollectionMode()
+    }
+} 

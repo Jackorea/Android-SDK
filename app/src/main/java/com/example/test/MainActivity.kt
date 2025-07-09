@@ -105,6 +105,8 @@ class MainActivity : ComponentActivity() {
                                 val connectedDeviceName by viewModel.connectedDeviceName.collectAsState()
                                 val accelerometerMode by viewModel.accelerometerMode.collectAsState()
                                 val processedAccData by viewModel.processedAccData.collectAsState()
+                                // 배치 수집 관련 상태들 추가
+                                val selectedCollectionMode by viewModel.selectedCollectionMode.collectAsState()
                                 
                                 DataScreen(
                                     eegData = eegData,
@@ -122,6 +124,11 @@ class MainActivity : ComponentActivity() {
                                     connectedDeviceName = connectedDeviceName,
                                     accelerometerMode = accelerometerMode,
                                     processedAccData = processedAccData,
+                                    // 배치 수집 관련 매개변수들 추가
+                                    selectedCollectionMode = selectedCollectionMode,
+                                    getSensorConfiguration = { sensorType ->
+                                        viewModel.getSensorConfiguration(sensorType)
+                                    },
                                     onDisconnect = { viewModel.disconnect() },
                                     onNavigateToScan = { 
                                         navController.navigate("scan") {
@@ -142,7 +149,20 @@ class MainActivity : ComponentActivity() {
                                             viewModel.enableAutoReconnect()
                                         }
                                     },
-                                    onSetAccelerometerMode = { mode -> viewModel.setAccelerometerMode(mode) }
+                                    onSetAccelerometerMode = { mode -> viewModel.setAccelerometerMode(mode) },
+                                    // 배치 수집 콜백 함수들 추가
+                                    onCollectionModeChange = { mode ->
+                                        viewModel.setCollectionMode(mode)
+                                    },
+                                    onSampleCountChange = { sensorType, count, text ->
+                                        viewModel.updateSensorSampleCount(sensorType, count, text)
+                                    },
+                                    onSecondsChange = { sensorType, seconds, text ->
+                                        viewModel.updateSensorSeconds(sensorType, seconds, text)
+                                    },
+                                    onMinutesChange = { sensorType, minutes, text ->
+                                        viewModel.updateSensorMinutes(sensorType, minutes, text)
+                                    }
                                 )
                             }
                             

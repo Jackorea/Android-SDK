@@ -13,6 +13,8 @@ import com.example.test.data.EegData
 import com.example.test.data.PpgData
 import com.example.test.data.AccelerometerMode
 import com.example.test.data.ProcessedAccData
+import com.example.test.data.CollectionMode
+import com.example.test.data.SensorBatchConfiguration
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -32,6 +34,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // 가속도계 모드 관련 StateFlow 추가
     val accelerometerMode: StateFlow<AccelerometerMode> = bleManager.accelerometerMode
     val processedAccData: StateFlow<List<ProcessedAccData>> = bleManager.processedAccData
+    
+    // 배치 수집 관련 StateFlow 추가
+    val selectedCollectionMode: StateFlow<CollectionMode> = bleManager.selectedCollectionMode
+    val eegBatchData: StateFlow<List<EegData>> = bleManager.eegBatchData
+    val ppgBatchData: StateFlow<List<PpgData>> = bleManager.ppgBatchData
+    val accBatchData: StateFlow<List<AccData>> = bleManager.accBatchData
     
     // 수동 서비스 제어 상태
     val isEegStarted: StateFlow<Boolean> = bleManager.isEegStarted
@@ -176,6 +184,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             bleManager.setAccelerometerMode(mode)
         }
+    }
+    
+    // ============ 배치 수집 관련 메서드들 ============
+    
+    /**
+     * 수집 모드를 설정합니다
+     */
+    fun setCollectionMode(mode: CollectionMode) {
+        Log.d("MainViewModel", "수집 모드 변경: ${mode.description}")
+        viewModelScope.launch {
+            bleManager.setCollectionMode(mode)
+        }
+    }
+    
+    /**
+     * 특정 센서의 샘플 수 설정을 업데이트합니다
+     */
+    fun updateSensorSampleCount(sensorType: SensorType, sampleCount: Int, sampleCountText: String) {
+        viewModelScope.launch {
+            bleManager.updateSensorSampleCount(sensorType, sampleCount, sampleCountText)
+        }
+    }
+    
+    /**
+     * 특정 센서의 초 단위 설정을 업데이트합니다
+     */
+    fun updateSensorSeconds(sensorType: SensorType, seconds: Int, secondsText: String) {
+        viewModelScope.launch {
+            bleManager.updateSensorSeconds(sensorType, seconds, secondsText)
+        }
+    }
+    
+    /**
+     * 특정 센서의 분 단위 설정을 업데이트합니다
+     */
+    fun updateSensorMinutes(sensorType: SensorType, minutes: Int, minutesText: String) {
+        viewModelScope.launch {
+            bleManager.updateSensorMinutes(sensorType, minutes, minutesText)
+        }
+    }
+    
+    /**
+     * 특정 센서의 현재 설정을 가져옵니다
+     */
+    fun getSensorConfiguration(sensorType: SensorType): SensorBatchConfiguration? {
+        return bleManager.getSensorConfiguration(sensorType)
     }
     
     // CSV 기록 제어 함수들

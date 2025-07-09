@@ -22,9 +22,12 @@ import com.example.test.data.EegData
 import com.example.test.data.PpgData
 import com.example.test.data.SensorDataParser
 import com.example.test.data.SensorDataParsingException
-import com.example.test.data.SensorConfiguration
+import com.example.test.data.SensorBatchConfiguration
 import com.example.test.data.AccelerometerMode
 import com.example.test.data.ProcessedAccData
+import com.example.test.data.CollectionMode
+import com.example.test.data.DataCollectionConfig
+import com.example.test.data.TimeBatchManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -70,7 +73,7 @@ class BleManager(private val context: Context) {
     private val handler = Handler(Looper.getMainLooper())
     
     // 센서 데이터 파서 추가
-    private val sensorDataParser = SensorDataParser(SensorConfiguration.default)
+    private val sensorDataParser = SensorDataParser(com.example.test.data.SensorConfiguration.default)
     
     private var bluetoothGatt: BluetoothGatt? = null
     
@@ -111,6 +114,47 @@ class BleManager(private val context: Context) {
     
     private val _batteryData = MutableStateFlow<BatteryData?>(null)
     val batteryData: StateFlow<BatteryData?> = _batteryData.asStateFlow()
+    
+    // 배치 수집 관련 변수들
+    private val _selectedCollectionMode = MutableStateFlow(CollectionMode.SAMPLE_COUNT)
+    val selectedCollectionMode: StateFlow<CollectionMode> = _selectedCollectionMode.asStateFlow()
+    
+    // 센서별 설정 관리
+    private val sensorConfigurations = mutableMapOf<SensorType, SensorBatchConfiguration>().apply {
+        put(SensorType.EEG, SensorBatchConfiguration.defaultConfiguration(SensorType.EEG))
+        put(SensorType.PPG, SensorBatchConfiguration.defaultConfiguration(SensorType.PPG))
+        put(SensorType.ACC, SensorBatchConfiguration.defaultConfiguration(SensorType.ACC))
+    }
+    
+    // 데이터 수집 설정
+    private val dataCollectionConfigs = mutableMapOf<SensorType, DataCollectionConfig>()
+    
+    // 시간 기반 배치 관리자들
+    private var eegTimeBatchManager: TimeBatchManager<EegData>? = null
+    private var ppgTimeBatchManager: TimeBatchManager<PpgData>? = null
+    private var accTimeBatchManager: TimeBatchManager<AccData>? = null
+    
+    // 샘플 기반 배치 버퍼들
+    private val eegSampleBuffer = mutableListOf<EegData>()
+    private val ppgSampleBuffer = mutableListOf<PpgData>()
+    private val accSampleBuffer = mutableListOf<AccData>()
+    
+    // 배치 데이터 StateFlow들
+    private val _eegBatchData = MutableStateFlow<List<EegData>>(emptyList())
+    val eegBatchData: StateFlow<List<EegData>> = _eegBatchData.asStateFlow()
+    
+    private val _ppgBatchData = MutableStateFlow<List<PpgData>>(emptyList())
+    val ppgBatchData: StateFlow<List<PpgData>> = _ppgBatchData.asStateFlow()
+    
+    private val _accBatchData = MutableStateFlow<List<AccData>>(emptyList())
+    val accBatchData: StateFlow<List<AccData>> = _accBatchData.asStateFlow()
+    
+    // 유효성 검사 범위
+    private object ValidationRange {
+        val sampleCount = 1..100000  // 최대 10만 샘플
+        val seconds = 1..3600        // 최대 1시간
+        val minutes = 1..60          // 최대 60분
+    }
     
     private val _isEegStarted = MutableStateFlow(false)
     val isEegStarted: StateFlow<Boolean> = _isEegStarted.asStateFlow()
@@ -587,6 +631,11 @@ class BleManager(private val context: Context) {
                     onSensorDataReceived(SensorType.EEG)
                 }
                 
+                // 배치 처리 추가
+                readings.forEach { reading ->
+                    addToEegBuffer(reading)
+                }
+                
                 // CSV 파일에 저장
                 readings.forEach { data ->
                     writeEegToCsv(data)
@@ -615,6 +664,11 @@ class BleManager(private val context: Context) {
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_ppgData.value.size > lastPpgDataSize) {
                     onSensorDataReceived(SensorType.PPG)
+                }
+                
+                // 배치 처리 추가
+                readings.forEach { reading ->
+                    addToPpgBuffer(reading)
                 }
                 
                 // CSV 파일에 저장
@@ -665,6 +719,11 @@ class BleManager(private val context: Context) {
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_accData.value.size > lastAccDataSize) {
                     onSensorDataReceived(SensorType.ACC)
+                }
+                
+                // 배치 처리 추가 (원시 데이터 사용)
+                readings.forEach { reading ->
+                    addToAccBuffer(reading)
                 }
                 
                 // CSV 파일에 저장 (처리된 데이터 사용)
@@ -901,6 +960,11 @@ class BleManager(private val context: Context) {
                 }
                 
                 Log.d("BleManager", "센서 활성화 큐 생성됨: $sensorActivationQueue")
+                
+                // 선택된 센서들에 대해 배치 수집 설정 적용
+                selectedSensors.forEach { sensorType ->
+                    configureSensorCollection(sensorType)
+                }
                 
                 // 서비스가 완전히 준비되지 않았으면 추가 딜레이
                 val initialDelay = if (!servicesReady) {
@@ -1178,5 +1242,272 @@ class BleManager(private val context: Context) {
                 }, 500)
             } ?: Log.e("BleManager", "PPG characteristic not found in activatePpgSensorInternal")
         } ?: Log.e("BleManager", "BluetoothGatt is null in activatePpgSensorInternal")
+    }
+    
+    // ============ 배치 수집 관련 메서드들 ============
+    
+    /**
+     * 수집 모드를 설정합니다
+     */
+    fun setCollectionMode(mode: CollectionMode) {
+        if (_selectedCollectionMode.value != mode) {
+            _selectedCollectionMode.value = mode
+            Log.d("BleManager", "수집 모드 변경: ${mode.description}")
+            
+            // 현재 활성화된 센서들에 대해 새로운 모드 적용
+            _selectedSensors.value.forEach { sensorType ->
+                configureSensorCollection(sensorType)
+            }
+        }
+    }
+    
+    /**
+     * 특정 센서의 샘플 수 설정을 업데이트합니다
+     */
+    fun updateSensorSampleCount(sensorType: SensorType, sampleCount: Int, sampleCountText: String) {
+        if (sampleCount in ValidationRange.sampleCount) {
+            sensorConfigurations[sensorType]?.let { config ->
+                config.sampleCount = sampleCount
+                config.sampleCountText = sampleCountText
+                
+                // 현재 샘플 수 모드이고 해당 센서가 활성화되어 있으면 즉시 적용
+                if (_selectedCollectionMode.value == CollectionMode.SAMPLE_COUNT && 
+                    _selectedSensors.value.contains(sensorType)) {
+                    configureSensorCollection(sensorType)
+                }
+                
+                Log.d("BleManager", "${sensorType.name} 샘플 수 설정: $sampleCount")
+            }
+        } else {
+            Log.w("BleManager", "유효하지 않은 샘플 수: $sampleCount (허용 범위: ${ValidationRange.sampleCount})")
+        }
+    }
+    
+    /**
+     * 특정 센서의 초 단위 설정을 업데이트합니다
+     */
+    fun updateSensorSeconds(sensorType: SensorType, seconds: Int, secondsText: String) {
+        if (seconds in ValidationRange.seconds) {
+            sensorConfigurations[sensorType]?.let { config ->
+                config.seconds = seconds
+                config.secondsText = secondsText
+                
+                // 현재 초 단위 모드이고 해당 센서가 활성화되어 있으면 즉시 적용
+                if (_selectedCollectionMode.value == CollectionMode.SECONDS && 
+                    _selectedSensors.value.contains(sensorType)) {
+                    configureSensorCollection(sensorType)
+                }
+                
+                Log.d("BleManager", "${sensorType.name} 초 단위 설정: ${seconds}초")
+            }
+        } else {
+            Log.w("BleManager", "유효하지 않은 초 값: $seconds (허용 범위: ${ValidationRange.seconds})")
+        }
+    }
+    
+    /**
+     * 특정 센서의 분 단위 설정을 업데이트합니다
+     */
+    fun updateSensorMinutes(sensorType: SensorType, minutes: Int, minutesText: String) {
+        if (minutes in ValidationRange.minutes) {
+            sensorConfigurations[sensorType]?.let { config ->
+                config.minutes = minutes
+                config.minutesText = minutesText
+                
+                // 현재 분 단위 모드이고 해당 센서가 활성화되어 있으면 즉시 적용
+                if (_selectedCollectionMode.value == CollectionMode.MINUTES && 
+                    _selectedSensors.value.contains(sensorType)) {
+                    configureSensorCollection(sensorType)
+                }
+                
+                Log.d("BleManager", "${sensorType.name} 분 단위 설정: ${minutes}분")
+            }
+        } else {
+            Log.w("BleManager", "유효하지 않은 분 값: $minutes (허용 범위: ${ValidationRange.minutes})")
+        }
+    }
+    
+    /**
+     * 특정 센서의 현재 설정을 가져옵니다
+     */
+    fun getSensorConfiguration(sensorType: SensorType): SensorBatchConfiguration? {
+        return sensorConfigurations[sensorType]
+    }
+    
+    /**
+     * 센서별 배치 수집 설정을 적용합니다
+     */
+    private fun configureSensorCollection(sensorType: SensorType) {
+        val config = sensorConfigurations[sensorType] ?: return
+        
+        when (_selectedCollectionMode.value) {
+            CollectionMode.SAMPLE_COUNT -> {
+                setDataCollectionSampleCount(config.sampleCount, sensorType)
+            }
+            CollectionMode.SECONDS -> {
+                setDataCollectionTimeInterval(config.seconds.toLong() * 1000, sensorType) // 초를 밀리초로 변환
+            }
+            CollectionMode.MINUTES -> {
+                setDataCollectionTimeInterval(config.minutes.toLong() * 60 * 1000, sensorType) // 분을 밀리초로 변환
+            }
+        }
+    }
+    
+    /**
+     * 샘플 개수를 기준으로 배치 데이터 수집을 설정합니다
+     */
+    private fun setDataCollectionSampleCount(sampleCount: Int, sensorType: SensorType) {
+        val config = DataCollectionConfig(
+            sensorType = sensorType,
+            mode = DataCollectionConfig.DataCollectionMode.SampleCount(sampleCount)
+        )
+        dataCollectionConfigs[sensorType] = config
+        clearSensorBuffer(sensorType)
+        
+        // 샘플 기반 모드에서는 시간 기반 관리자 제거
+        when (sensorType) {
+            SensorType.EEG -> eegTimeBatchManager = null
+            SensorType.PPG -> ppgTimeBatchManager = null
+            SensorType.ACC -> accTimeBatchManager = null
+        }
+        
+        Log.d("BleManager", "🔧 샘플 기반 배치 설정: $sensorType - ${sampleCount}개씩")
+    }
+    
+    /**
+     * 시간 간격을 기준으로 배치 데이터 수집을 설정합니다
+     */
+    private fun setDataCollectionTimeInterval(timeIntervalMs: Long, sensorType: SensorType) {
+        val config = DataCollectionConfig(
+            sensorType = sensorType,
+            mode = DataCollectionConfig.DataCollectionMode.TimeInterval(timeIntervalMs)
+        )
+        dataCollectionConfigs[sensorType] = config
+        clearSensorBuffer(sensorType)
+        
+        Log.d("BleManager", "🔧 시간 기반 배치 설정: $sensorType - ${timeIntervalMs}ms 간격")
+        
+        // 시간 기반 배치 관리자 초기화
+        when (sensorType) {
+            SensorType.EEG -> {
+                eegTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
+                Log.d("BleManager", "📊 EEG TimeBatchManager 초기화됨")
+            }
+            SensorType.PPG -> {
+                ppgTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
+                Log.d("BleManager", "📊 PPG TimeBatchManager 초기화됨")
+            }
+            SensorType.ACC -> {
+                accTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
+                Log.d("BleManager", "📊 ACC TimeBatchManager 초기화됨")
+            }
+        }
+    }
+    
+    /**
+     * 특정 센서의 버퍼를 비웁니다
+     */
+    private fun clearSensorBuffer(sensorType: SensorType) {
+        when (sensorType) {
+            SensorType.EEG -> {
+                eegSampleBuffer.clear()
+                eegTimeBatchManager?.clearBuffer()
+            }
+            SensorType.PPG -> {
+                ppgSampleBuffer.clear()
+                ppgTimeBatchManager?.clearBuffer()
+            }
+            SensorType.ACC -> {
+                accSampleBuffer.clear()
+                accTimeBatchManager?.clearBuffer()
+            }
+        }
+    }
+    
+    /**
+     * EEG 데이터를 배치 버퍼에 추가합니다
+     */
+    private fun addToEegBuffer(reading: EegData) {
+        val config = dataCollectionConfigs[SensorType.EEG] ?: return
+        
+        when (val mode = config.mode) {
+            is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
+                // 시간 기반 모드: TimeBatchManager 사용
+                eegTimeBatchManager?.addSample(reading)?.let { batch ->
+                    Log.d("BleManager", "📦 EEG 시간 배치 완성: ${batch.size}개 샘플")
+                    _eegBatchData.value = batch
+                }
+            }
+            is DataCollectionConfig.DataCollectionMode.SampleCount -> {
+                // 샘플 기반 모드: 기존 버퍼 사용
+                eegSampleBuffer.add(reading)
+                
+                if (eegSampleBuffer.size >= mode.count) {
+                    val batch = eegSampleBuffer.take(mode.count)
+                    eegSampleBuffer.removeAll(batch.toSet())
+                    
+                    Log.d("BleManager", "📦 EEG 샘플 배치 완성: ${batch.size}개 샘플")
+                    _eegBatchData.value = batch
+                }
+            }
+        }
+    }
+    
+    /**
+     * PPG 데이터를 배치 버퍼에 추가합니다
+     */
+    private fun addToPpgBuffer(reading: PpgData) {
+        val config = dataCollectionConfigs[SensorType.PPG] ?: return
+        
+        when (val mode = config.mode) {
+            is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
+                // 시간 기반 모드: TimeBatchManager 사용
+                ppgTimeBatchManager?.addSample(reading)?.let { batch ->
+                    Log.d("BleManager", "📦 PPG 시간 배치 완성: ${batch.size}개 샘플")
+                    _ppgBatchData.value = batch
+                }
+            }
+            is DataCollectionConfig.DataCollectionMode.SampleCount -> {
+                // 샘플 기반 모드: 기존 버퍼 사용
+                ppgSampleBuffer.add(reading)
+                
+                if (ppgSampleBuffer.size >= mode.count) {
+                    val batch = ppgSampleBuffer.take(mode.count)
+                    ppgSampleBuffer.removeAll(batch.toSet())
+                    
+                    Log.d("BleManager", "📦 PPG 샘플 배치 완성: ${batch.size}개 샘플")
+                    _ppgBatchData.value = batch
+                }
+            }
+        }
+    }
+    
+    /**
+     * ACC 데이터를 배치 버퍼에 추가합니다
+     */
+    private fun addToAccBuffer(reading: AccData) {
+        val config = dataCollectionConfigs[SensorType.ACC] ?: return
+        
+        when (val mode = config.mode) {
+            is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
+                // 시간 기반 모드: TimeBatchManager 사용
+                accTimeBatchManager?.addSample(reading)?.let { batch ->
+                    Log.d("BleManager", "📦 ACC 시간 배치 완성: ${batch.size}개 샘플")
+                    _accBatchData.value = batch
+                }
+            }
+            is DataCollectionConfig.DataCollectionMode.SampleCount -> {
+                // 샘플 기반 모드: 기존 버퍼 사용
+                accSampleBuffer.add(reading)
+                
+                if (accSampleBuffer.size >= mode.count) {
+                    val batch = accSampleBuffer.take(mode.count)
+                    accSampleBuffer.removeAll(batch.toSet())
+                    
+                    Log.d("BleManager", "📦 ACC 샘플 배치 완성: ${batch.size}개 샘플")
+                    _accBatchData.value = batch
+                }
+            }
+        }
     }
 } 
