@@ -62,9 +62,11 @@ class SensorDataParser(
         
         // 패킷 크기가 예상과 다른 경우 로깅
         if (data.size != configuration.eegPacketSize) {
+            /*
             Log.w(TAG, "⚠️ EEG packet size: ${data.size} bytes (expected: ${configuration.eegPacketSize}), " +
                      "processing $actualSampleCount samples (expected: $expectedSampleCount)")
             Log.i(TAG, "📊 EEG buffering: ${actualDurationMs}ms worth of data (expected: ${expectedDurationMs}ms)")
+            */
         }
         
         // 안드로이드 앱에서 데이터 수신 시점의 현재 시간 사용
@@ -155,8 +157,10 @@ class SensorDataParser(
         
         // 패킷 크기가 예상과 다른 경우 로깅
         if (data.size != configuration.ppgPacketSize) {
+            /*
             Log.w(TAG, "⚠️ PPG packet size: ${data.size} bytes (expected: ${configuration.ppgPacketSize}), " +
                      "processing $actualSampleCount samples (expected: $expectedSampleCount)")
+            */
         }
         
         // 안드로이드 앱에서 데이터 수신 시점의 현재 시간 사용

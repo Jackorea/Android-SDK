@@ -615,16 +615,9 @@ class BleManager(private val context: Context) {
             val readings = sensorDataParser.parseEegData(data)
             
             if (readings.isNotEmpty()) {
-                Log.d("BleManager", "EEG: ${readings.size} samples")
                 val currentData = _eegData.value.takeLast(1000).toMutableList()
                 currentData.addAll(readings)
                 _eegData.value = currentData
-                
-                // 각 샘플의 상세 정보 출력 (앱 UI와 동일한 형식)
-                readings.forEach { sample ->
-                    val leadOffValue = if (sample.leadOff) 1 else 0
-                    Log.d("BleManager", "EEG Sample: Timestamp: ${sample.timestamp.time}, ch1Raw: ${sample.ch1Raw}, ch2Raw: ${sample.ch2Raw}, ch1uV: ${sample.channel1.roundToInt()}µV, ch2uV: ${sample.channel2.roundToInt()}µV, LeadOff: $leadOffValue")
-                }
                 
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_eegData.value.size > lastEegDataSize) {
@@ -651,15 +644,9 @@ class BleManager(private val context: Context) {
             val readings = sensorDataParser.parsePpgData(data)
             
             if (readings.isNotEmpty()) {
-                Log.d("BleManager", "PPG: ${readings.size} samples")
                 val currentData = _ppgData.value.takeLast(500).toMutableList()
                 currentData.addAll(readings)
                 _ppgData.value = currentData
-                
-                // 각 샘플의 상세 정보 출력 (앱 UI와 동일한 형식)
-                readings.forEach { sample ->
-                    Log.d("BleManager", "PPG Sample: Timestamp: ${sample.timestamp.time}, Red: ${sample.red}, IR: ${sample.ir}")
-                }
                 
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_ppgData.value.size > lastPpgDataSize) {
@@ -687,8 +674,6 @@ class BleManager(private val context: Context) {
             
             if (readings.isNotEmpty()) {
                 val currentMode = _accelerometerMode.value
-                val modeText = if (currentMode == AccelerometerMode.RAW) "원시값" else "움직임"
-                Log.d("BleManager", "ACC [$modeText]: ${readings.size} samples")
                 
                 // 원시 데이터 업데이트
                 val currentData = _accData.value.takeLast(300).toMutableList()
@@ -702,19 +687,6 @@ class BleManager(private val context: Context) {
                 val currentProcessedData = _processedAccData.value.takeLast(300).toMutableList()
                 currentProcessedData.addAll(processedReadings)
                 _processedAccData.value = currentProcessedData
-                
-                // 각 샘플의 상세 정보 출력 (스위프트와 동일한 형식)
-                processedReadings.forEachIndexed { index, sample ->
-                    val unixTimestamp = String.format("%.3f", sample.timestamp.time / 1000.0)
-                    
-                    if (currentMode == AccelerometerMode.RAW) {
-                        // 원시값 모드: 원래대로 출력
-                        Log.d("BleManager", "   📊 샘플 #${index + 1}: TIMESTAMP=$unixTimestamp, X=${sample.x}, Y=${sample.y}, Z=${sample.z}")
-                    } else {
-                        // 움직임 모드: 중력 제거된 선형 가속도 출력
-                        Log.d("BleManager", "   📊 샘플 #${index + 1} [선형]: TIMESTAMP=$unixTimestamp, X=${sample.x}, Y=${sample.y}, Z=${sample.z}")
-                    }
-                }
                 
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_accData.value.size > lastAccDataSize) {
@@ -1435,6 +1407,7 @@ class BleManager(private val context: Context) {
                 // 시간 기반 모드: TimeBatchManager 사용
                 eegTimeBatchManager?.addSample(reading)?.let { batch ->
                     Log.d("BleManager", "📦 EEG 시간 배치 완성: ${batch.size}개 샘플")
+                    logEegBatch(batch)
                     _eegBatchData.value = batch
                 }
             }
@@ -1447,6 +1420,7 @@ class BleManager(private val context: Context) {
                     eegSampleBuffer.removeAll(batch.toSet())
                     
                     Log.d("BleManager", "📦 EEG 샘플 배치 완성: ${batch.size}개 샘플")
+                    logEegBatch(batch)
                     _eegBatchData.value = batch
                 }
             }
@@ -1464,6 +1438,7 @@ class BleManager(private val context: Context) {
                 // 시간 기반 모드: TimeBatchManager 사용
                 ppgTimeBatchManager?.addSample(reading)?.let { batch ->
                     Log.d("BleManager", "📦 PPG 시간 배치 완성: ${batch.size}개 샘플")
+                    logPpgBatch(batch)
                     _ppgBatchData.value = batch
                 }
             }
@@ -1476,6 +1451,7 @@ class BleManager(private val context: Context) {
                     ppgSampleBuffer.removeAll(batch.toSet())
                     
                     Log.d("BleManager", "📦 PPG 샘플 배치 완성: ${batch.size}개 샘플")
+                    logPpgBatch(batch)
                     _ppgBatchData.value = batch
                 }
             }
@@ -1493,6 +1469,7 @@ class BleManager(private val context: Context) {
                 // 시간 기반 모드: TimeBatchManager 사용
                 accTimeBatchManager?.addSample(reading)?.let { batch ->
                     Log.d("BleManager", "📦 ACC 시간 배치 완성: ${batch.size}개 샘플")
+                    logAccBatch(batch)
                     _accBatchData.value = batch
                 }
             }
@@ -1505,9 +1482,37 @@ class BleManager(private val context: Context) {
                     accSampleBuffer.removeAll(batch.toSet())
                     
                     Log.d("BleManager", "📦 ACC 샘플 배치 완성: ${batch.size}개 샘플")
+                    logAccBatch(batch)
                     _accBatchData.value = batch
                 }
             }
         }
+    }
+    
+    // ============ 배치 데이터 로깅 헬퍼 함수들 ============
+    
+    private fun logEegBatch(batch: List<EegData>) {
+        Log.i("BleManager", "--- EEG Batch (${batch.size} samples) ---")
+        batch.forEachIndexed { index, data ->
+            val leadOffValue = if (data.leadOff) 1 else 0
+            Log.d("BleManager", "  [${index + 1}] Timestamp: ${data.timestamp.time}, Ch1: ${data.channel1.roundToInt()}µV, Ch2: ${data.channel2.roundToInt()}µV, LeadOff: $leadOffValue")
+        }
+        Log.i("BleManager", "------------------------------------")
+    }
+    
+    private fun logPpgBatch(batch: List<PpgData>) {
+        Log.i("BleManager", "--- PPG Batch (${batch.size} samples) ---")
+        batch.forEachIndexed { index, data ->
+            Log.d("BleManager", "  [${index + 1}] Timestamp: ${data.timestamp.time}, Red: ${data.red}, IR: ${data.ir}")
+        }
+        Log.i("BleManager", "------------------------------------")
+    }
+    
+    private fun logAccBatch(batch: List<AccData>) {
+        Log.i("BleManager", "--- ACC Batch (${batch.size} samples) ---")
+        batch.forEachIndexed { index, data ->
+            Log.d("BleManager", "  [${index + 1}] Timestamp: ${data.timestamp.time}, X: ${data.x}, Y: ${data.y}, Z: ${data.z}")
+        }
+        Log.i("BleManager", "------------------------------------")
     }
 } 
