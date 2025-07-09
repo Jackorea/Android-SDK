@@ -688,6 +688,7 @@ class BleManager(private val context: Context) {
             emergencyDisablePpg(gatt)
             
             // 각 센서 타입에 대해 setNotifyValue(false) 실행 (스위프트와 동일한 방식)
+            // ✅ 주의: 배터리 센서는 비활성화하지 않음 (스위프트 코드와 동일하게 항상 활성 상태 유지)
             setNotifyValue(false, SensorType.EEG, gatt)
             setNotifyValue(false, SensorType.PPG, gatt)
             setNotifyValue(false, SensorType.ACC, gatt)
@@ -711,7 +712,7 @@ class BleManager(private val context: Context) {
             _isAccStarted.value = false
             _isReceivingData.value = false
             
-            Log.d("BleManager", "All sensor notifications disabled")
+            Log.d("BleManager", "All sensor notifications disabled (배터리는 항상 활성 상태 유지)")
         }
     }
     
@@ -884,12 +885,27 @@ class BleManager(private val context: Context) {
                 sensorActivationQueue.clear()
                 currentActivatingSensor = null
                 
-                // 디바이스 활성화를 위해 항상 EEG write 명령 전송 (선택되지 않아도)
-                val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
-                eegWriteChar?.let {
-                    it.value = "start".toByteArray()
-                    gatt.writeCharacteristic(it)
-                    Log.d("BleManager", "Device activation command sent via EEG write")
+                // ✅ 스위프트와 동일: 배터리 센서는 항상 먼저 활성화 (PPG 단독 동작을 위해 필수)
+                Log.d("BleManager", "🔋 배터리 센서 notification 활성화 (스위프트 configureSensorNotifications 로직)")
+                val batteryChar = gatt.getService(BATTERY_SERVICE_UUID)?.getCharacteristic(BATTERY_CHAR_UUID)
+                batteryChar?.let { char ->
+                    gatt.setCharacteristicNotification(char, true)
+                    val descriptor = char.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+                    descriptor?.let { desc ->
+                        desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        gatt.writeDescriptor(desc)
+                        Log.d("BleManager", "🔋 배터리 센서 notification 활성화 완료")
+                    }
+                } ?: Log.w("BleManager", "🔋 배터리 characteristic 찾을 수 없음")
+                
+                // EEG write 명령은 EEG가 선택되었을 때만 전송 (스위프트와 동일)
+                if (selectedSensors.contains(SensorType.EEG)) {
+                    val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
+                    eegWriteChar?.let {
+                        it.value = "start".toByteArray()
+                        gatt.writeCharacteristic(it)
+                        Log.d("BleManager", "EEG write command sent (EEG selected)")
+                    }
                 }
                 
                 // 선택된 센서들을 순서대로 큐에 추가 (EEG → ACC → PPG 순서)

@@ -67,6 +67,18 @@ fun DataScreen(
         }
     }
     
+    // 수집 시작 시점의 선택된 센서 스냅샷
+    var startedSensors by remember { mutableStateOf<Set<SensorType>>(emptySet()) }
+    
+    // 수집 시작/중지 시점에 스냅샷 갱신
+    LaunchedEffect(isReceivingData) {
+        if (isReceivingData) {
+            startedSensors = selectedSensors.toSet()
+        } else {
+            startedSensors = emptySet()
+        }
+    }
+    
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -385,72 +397,78 @@ fun DataScreen(
         }
         
         // EEG 데이터 (같은 레벨에 표시)
-        item {
-            SensorDataCard(
-                title = "EEG 데이터",
-                content = {
-                    if (eegData.isNotEmpty()) {
-                        val latest = eegData.takeLast(3)
-                        latest.forEach { data ->
+        if (startedSensors.contains(SensorType.EEG)) {
+            item {
+                SensorDataCard(
+                    title = "EEG 데이터",
+                    content = {
+                        if (eegData.isNotEmpty()) {
+                            val latest = eegData.takeLast(3)
+                            latest.forEach { data ->
+                                Text(
+                                    text = "Timestamp: ${data.timestamp.time}, ch1Raw: ${data.ch1Raw}, ch2Raw: ${data.ch2Raw}, ch1uV: ${data.channel1.roundToInt()}µV, ch2uV: ${data.channel2.roundToInt()}µV, Lead: ${if (data.leadOff) "1" else "0"}",
+                                    fontSize = 12.sp
+                                )
+                            }
+                        } else {
                             Text(
-                                text = "Timestamp: ${data.timestamp.time}, ch1Raw: ${data.ch1Raw}, ch2Raw: ${data.ch2Raw}, ch1uV: ${data.channel1.roundToInt()}µV, ch2uV: ${data.channel2.roundToInt()}µV, Lead: ${if (data.leadOff) "1" else "0"}",
-                                fontSize = 12.sp
+                                text = "EEG 데이터를 수신하지 못했습니다",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    } else {
-                        Text(
-                            text = "EEG 데이터를 수신하지 못했습니다",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
-                }
-            )
+                )
+            }
         }
         
         // PPG 데이터 (같은 레벨에 표시)
-        item {
-            SensorDataCard(
-                title = "PPG 데이터",
-                content = {
-                    if (ppgData.isNotEmpty()) {
-                        val latest = ppgData.takeLast(3)
-                        latest.forEach { data ->
+        if (startedSensors.contains(SensorType.PPG)) {
+            item {
+                SensorDataCard(
+                    title = "PPG 데이터",
+                    content = {
+                        if (ppgData.isNotEmpty()) {
+                            val latest = ppgData.takeLast(3)
+                            latest.forEach { data ->
+                                Text(
+                                    text = "Timestamp: ${data.timestamp.time}, Red: ${data.red}, IR: ${data.ir}",
+                                    fontSize = 12.sp
+                                )
+                            }
+                        } else {
                             Text(
-                                text = "Timestamp: ${data.timestamp.time}, Red: ${data.red}, IR: ${data.ir}",
-                                fontSize = 12.sp
+                                text = "PPG 데이터를 수신하지 못했습니다",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    } else {
-                        Text(
-                            text = "PPG 데이터를 수신하지 못했습니다",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
-                }
-            )
+                )
+            }
         }
         
         // ACC 데이터 (같은 레벨에 표시)
-        item {
-            SensorDataCard(
-                title = "ACC 데이터",
-                content = {
-                    if (accData.isNotEmpty()) {
-                        val latest = accData.takeLast(3)
-                        latest.forEach { data ->
+        if (startedSensors.contains(SensorType.ACC)) {
+            item {
+                SensorDataCard(
+                    title = "ACC 데이터",
+                    content = {
+                        if (accData.isNotEmpty()) {
+                            val latest = accData.takeLast(3)
+                            latest.forEach { data ->
+                                Text(
+                                    text = "Timestamp: ${data.timestamp.time}, X: ${data.x}, Y: ${data.y}, Z: ${data.z}",
+                                    fontSize = 12.sp
+                                )
+                            }
+                        } else {
                             Text(
-                                text = "Timestamp: ${data.timestamp.time}, X: ${data.x}, Y: ${data.y}, Z: ${data.z}",
-                                fontSize = 12.sp
+                                text = "ACC 데이터를 수신하지 못했습니다",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    } else {
-                        Text(
-                            text = "ACC 데이터를 수신하지 못했습니다",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
-                }
-            )
+                )
+            }
         }
         
         // 자동연결 토글 (ACC 데이터 카드 아래로 이동)
