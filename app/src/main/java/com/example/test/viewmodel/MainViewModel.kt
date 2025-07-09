@@ -11,6 +11,8 @@ import com.example.test.data.AccData
 import com.example.test.data.BatteryData
 import com.example.test.data.EegData
 import com.example.test.data.PpgData
+import com.example.test.data.AccelerometerMode
+import com.example.test.data.ProcessedAccData
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
@@ -26,6 +28,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val ppgData: StateFlow<List<PpgData>> = bleManager.ppgData
     val accData: StateFlow<List<AccData>> = bleManager.accData
     val batteryData: StateFlow<BatteryData?> = bleManager.batteryData
+    
+    // 가속도계 모드 관련 StateFlow 추가
+    val accelerometerMode: StateFlow<AccelerometerMode> = bleManager.accelerometerMode
+    val processedAccData: StateFlow<List<ProcessedAccData>> = bleManager.processedAccData
     
     // 수동 서비스 제어 상태
     val isEegStarted: StateFlow<Boolean> = bleManager.isEegStarted
@@ -161,6 +167,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         Log.d("MainViewModel", "선택된 센서들 중지 요청")
         viewModelScope.launch {
             bleManager.stopSelectedSensors()
+        }
+    }
+    
+    // 가속도계 모드 제어 함수
+    fun setAccelerometerMode(mode: AccelerometerMode) {
+        Log.d("MainViewModel", "가속도계 모드 변경: ${mode.description}")
+        viewModelScope.launch {
+            bleManager.setAccelerometerMode(mode)
         }
     }
     

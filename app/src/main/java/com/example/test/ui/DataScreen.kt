@@ -27,6 +27,8 @@ import com.example.test.data.AccData
 import com.example.test.data.BatteryData
 import com.example.test.data.EegData
 import com.example.test.data.PpgData
+import com.example.test.data.AccelerometerMode
+import com.example.test.data.ProcessedAccData
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,6 +47,8 @@ fun DataScreen(
     isRecording: Boolean,
     isAutoReconnectEnabled: Boolean,
     connectedDeviceName: String?,
+    accelerometerMode: AccelerometerMode,
+    processedAccData: List<ProcessedAccData>,
     onDisconnect: () -> Unit,
     onNavigateToScan: () -> Unit,
     onSelectSensor: (SensorType) -> Unit,
@@ -54,7 +58,8 @@ fun DataScreen(
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
     onShowFileList: () -> Unit,
-    onToggleAutoReconnect: () -> Unit
+    onToggleAutoReconnect: () -> Unit,
+    onSetAccelerometerMode: (AccelerometerMode) -> Unit
 ) {
     // 경고 다이얼로그 상태
     var showStopCollectionDialog by remember { mutableStateOf(false) }
@@ -322,6 +327,89 @@ fun DataScreen(
                         }
                     }
                     
+                    // ACC 모드 선택 토글 (스위프트와 동일한 세그먼트 컨트롤 스타일)
+                    if (selectedSensors.contains(SensorType.ACC)) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "ACC 표시 모드:",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        // 세그먼트 컨트롤 스타일의 토글
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(0.dp)
+                        ) {
+                            // 원시값 버튼
+                            Button(
+                                onClick = { onSetAccelerometerMode(AccelerometerMode.RAW) },
+                                enabled = isConnected && !isRecording,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (accelerometerMode == AccelerometerMode.RAW) 
+                                        MaterialTheme.colorScheme.primary 
+                                    else 
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(
+                                    topStart = 8.dp, 
+                                    bottomStart = 8.dp, 
+                                    topEnd = 0.dp, 
+                                    bottomEnd = 0.dp
+                                )
+                            ) {
+                                Text(
+                                    text = "원시값",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (accelerometerMode == AccelerometerMode.RAW) 
+                                        MaterialTheme.colorScheme.onPrimary 
+                                    else 
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            
+                            // 움직임 버튼
+                            Button(
+                                onClick = { onSetAccelerometerMode(AccelerometerMode.MOTION) },
+                                enabled = isConnected && !isRecording,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (accelerometerMode == AccelerometerMode.MOTION) 
+                                        MaterialTheme.colorScheme.primary 
+                                    else 
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(
+                                    topStart = 0.dp, 
+                                    bottomStart = 0.dp, 
+                                    topEnd = 8.dp, 
+                                    bottomEnd = 8.dp
+                                )
+                            ) {
+                                Text(
+                                    text = "움직임",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (accelerometerMode == AccelerometerMode.MOTION) 
+                                        MaterialTheme.colorScheme.onPrimary 
+                                    else 
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        
+                        // 모드 설명
+                        Text(
+                            text = accelerometerMode.description,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                    
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     // 선택된 센서 시작/중지 버튼
@@ -450,13 +538,14 @@ fun DataScreen(
         if (startedSensors.contains(SensorType.ACC)) {
             item {
                 SensorDataCard(
-                    title = "ACC 데이터",
+                    title = "ACC 데이터 [${if (accelerometerMode == AccelerometerMode.RAW) "원시값" else "움직임"}]",
                     content = {
-                        if (accData.isNotEmpty()) {
-                            val latest = accData.takeLast(3)
+                        if (processedAccData.isNotEmpty()) {
+                            val latest = processedAccData.takeLast(3)
                             latest.forEach { data ->
+                                val modePrefix = if (data.mode == AccelerometerMode.RAW) "" else "[선형] "
                                 Text(
-                                    text = "Timestamp: ${data.timestamp.time}, X: ${data.x}, Y: ${data.y}, Z: ${data.z}",
+                                    text = "${modePrefix}Timestamp: ${data.timestamp.time}, X: ${data.x}, Y: ${data.y}, Z: ${data.z}",
                                     fontSize = 12.sp
                                 )
                             }

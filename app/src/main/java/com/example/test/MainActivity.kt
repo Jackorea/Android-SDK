@@ -103,6 +103,8 @@ class MainActivity : ComponentActivity() {
                                 val isRecording by viewModel.isRecording.collectAsState()
                                 val isAutoReconnectEnabled by viewModel.isAutoReconnectEnabled.collectAsState()
                                 val connectedDeviceName by viewModel.connectedDeviceName.collectAsState()
+                                val accelerometerMode by viewModel.accelerometerMode.collectAsState()
+                                val processedAccData by viewModel.processedAccData.collectAsState()
                                 
                                 DataScreen(
                                     eegData = eegData,
@@ -118,6 +120,8 @@ class MainActivity : ComponentActivity() {
                                     isRecording = isRecording,
                                     isAutoReconnectEnabled = isAutoReconnectEnabled,
                                     connectedDeviceName = connectedDeviceName,
+                                    accelerometerMode = accelerometerMode,
+                                    processedAccData = processedAccData,
                                     onDisconnect = { viewModel.disconnect() },
                                     onNavigateToScan = { 
                                         navController.navigate("scan") {
@@ -130,16 +134,15 @@ class MainActivity : ComponentActivity() {
                                     onStopSelectedSensors = { viewModel.stopSelectedSensors() },
                                     onStartRecording = { viewModel.startRecording() },
                                     onStopRecording = { viewModel.stopRecording() },
-                                    onShowFileList = { 
-                                        navController.navigate("fileList")
-                                    },
+                                    onShowFileList = { navController.navigate("files") },
                                     onToggleAutoReconnect = { 
                                         if (isAutoReconnectEnabled) {
                                             viewModel.disableAutoReconnect()
                                         } else {
                                             viewModel.enableAutoReconnect()
                                         }
-                                    }
+                                    },
+                                    onSetAccelerometerMode = { mode -> viewModel.setAccelerometerMode(mode) }
                                 )
                             }
                             

@@ -23,6 +23,8 @@ import com.example.test.data.PpgData
 import com.example.test.data.SensorDataParser
 import com.example.test.data.SensorDataParsingException
 import com.example.test.data.SensorConfiguration
+import com.example.test.data.AccelerometerMode
+import com.example.test.data.ProcessedAccData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -92,6 +94,20 @@ class BleManager(private val context: Context) {
     
     private val _accData = MutableStateFlow<List<AccData>>(emptyList())
     val accData: StateFlow<List<AccData>> = _accData.asStateFlow()
+    
+    // 가속도계 모드 관련 변수들 추가
+    private val _accelerometerMode = MutableStateFlow(AccelerometerMode.RAW)
+    val accelerometerMode: StateFlow<AccelerometerMode> = _accelerometerMode.asStateFlow()
+    
+    private val _processedAccData = MutableStateFlow<List<ProcessedAccData>>(emptyList())
+    val processedAccData: StateFlow<List<ProcessedAccData>> = _processedAccData.asStateFlow()
+    
+    // 중력 추정을 위한 변수들 (스위프트와 동일)
+    private var gravityX: Double = 0.0
+    private var gravityY: Double = 0.0
+    private var gravityZ: Double = 0.0
+    private var isGravityInitialized: Boolean = false
+    private val gravityFilterFactor: Double = 0.1 // 저역 통과 필터 계수
     
     private val _batteryData = MutableStateFlow<BatteryData?>(null)
     val batteryData: StateFlow<BatteryData?> = _batteryData.asStateFlow()
@@ -616,14 +632,34 @@ class BleManager(private val context: Context) {
             val readings = sensorDataParser.parseAccelerometerData(data)
             
             if (readings.isNotEmpty()) {
-                Log.d("BleManager", "ACC: ${readings.size} samples")
+                val currentMode = _accelerometerMode.value
+                val modeText = if (currentMode == AccelerometerMode.RAW) "원시값" else "움직임"
+                Log.d("BleManager", "ACC [$modeText]: ${readings.size} samples")
+                
+                // 원시 데이터 업데이트
                 val currentData = _accData.value.takeLast(300).toMutableList()
                 currentData.addAll(readings)
                 _accData.value = currentData
                 
-                // 각 샘플의 상세 정보 출력 (앱 UI와 동일한 형식)
-                readings.forEach { sample ->
-                    Log.d("BleManager", "ACC Sample: Timestamp: ${sample.timestamp.time}, X: ${sample.x}, Y: ${sample.y}, Z: ${sample.z}")
+                // 처리된 데이터 생성 및 업데이트
+                val processedReadings = readings.map { reading ->
+                    processAccelerometerReading(reading)
+                }
+                val currentProcessedData = _processedAccData.value.takeLast(300).toMutableList()
+                currentProcessedData.addAll(processedReadings)
+                _processedAccData.value = currentProcessedData
+                
+                // 각 샘플의 상세 정보 출력 (스위프트와 동일한 형식)
+                processedReadings.forEachIndexed { index, sample ->
+                    val unixTimestamp = String.format("%.3f", sample.timestamp.time / 1000.0)
+                    
+                    if (currentMode == AccelerometerMode.RAW) {
+                        // 원시값 모드: 원래대로 출력
+                        Log.d("BleManager", "   📊 샘플 #${index + 1}: TIMESTAMP=$unixTimestamp, X=${sample.x}, Y=${sample.y}, Z=${sample.z}")
+                    } else {
+                        // 움직임 모드: 중력 제거된 선형 가속도 출력
+                        Log.d("BleManager", "   📊 샘플 #${index + 1} [선형]: TIMESTAMP=$unixTimestamp, X=${sample.x}, Y=${sample.y}, Z=${sample.z}")
+                    }
                 }
                 
                 // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
@@ -631,9 +667,9 @@ class BleManager(private val context: Context) {
                     onSensorDataReceived(SensorType.ACC)
                 }
                 
-                // CSV 파일에 저장
-                readings.forEach { data ->
-                    writeAccToCsv(data)
+                // CSV 파일에 저장 (처리된 데이터 사용)
+                processedReadings.forEach { processedData ->
+                    writeAccToCsv(processedData)
                 }
             }
         } catch (e: SensorDataParsingException) {
@@ -665,6 +701,64 @@ class BleManager(private val context: Context) {
         Log.d("BleManager", "Sensor deselected: $sensor, current selection: $currentSelected")
     }
     
+    // 가속도계 모드 제어 함수들
+    fun setAccelerometerMode(mode: AccelerometerMode) {
+        if (_accelerometerMode.value != mode) {
+            _accelerometerMode.value = mode
+            Log.d("BleManager", "Accelerometer mode changed to: ${mode.description}")
+            
+            // 모드 변경 시 중력 추정 초기화
+            if (mode == AccelerometerMode.MOTION) {
+                resetGravityEstimate()
+            }
+        }
+    }
+    
+    // 중력 추정 초기화 (스위프트의 resetGravityEstimate와 동일)
+    private fun resetGravityEstimate() {
+        isGravityInitialized = false
+        gravityX = 0.0
+        gravityY = 0.0
+        gravityZ = 0.0
+        Log.d("BleManager", "Gravity estimate reset for motion mode")
+    }
+    
+    // 중력 성분을 추정하고 업데이트하는 함수 (스위프트와 동일)
+    private fun updateGravityEstimate(reading: AccData) {
+        if (!isGravityInitialized) {
+            // 첫 번째 읽기: 초기값으로 설정
+            gravityX = reading.x.toDouble()
+            gravityY = reading.y.toDouble()
+            gravityZ = reading.z.toDouble()
+            isGravityInitialized = true
+            Log.d("BleManager", "Gravity initialized: X=$gravityX, Y=$gravityY, Z=$gravityZ")
+        } else {
+            // 저역 통과 필터를 사용한 중력 추정
+            gravityX = gravityX * (1 - gravityFilterFactor) + reading.x.toDouble() * gravityFilterFactor
+            gravityY = gravityY * (1 - gravityFilterFactor) + reading.y.toDouble() * gravityFilterFactor
+            gravityZ = gravityZ * (1 - gravityFilterFactor) + reading.z.toDouble() * gravityFilterFactor
+        }
+    }
+    
+    // 가속도계 모드에 따라 처리된 데이터를 생성 (스위프트와 동일)
+    private fun processAccelerometerReading(reading: AccData): ProcessedAccData {
+        return when (_accelerometerMode.value) {
+            AccelerometerMode.RAW -> {
+                // 원시값 모드: 원래 데이터 그대로 반환
+                ProcessedAccData(reading.timestamp, reading.x, reading.y, reading.z, AccelerometerMode.RAW)
+            }
+            AccelerometerMode.MOTION -> {
+                // 움직임 모드: 중력 제거된 선형 가속도 반환
+                updateGravityEstimate(reading)
+                val linearX = (reading.x.toDouble() - gravityX).toInt().toShort()
+                val linearY = (reading.y.toDouble() - gravityY).toInt().toShort()
+                val linearZ = (reading.z.toDouble() - gravityZ).toInt().toShort()
+                
+                ProcessedAccData(reading.timestamp, linearX, linearY, linearZ, AccelerometerMode.MOTION)
+            }
+        }
+    }
+    
     private fun setupNotification(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, sensorName: String) {
         Log.d("BleManager", "Setting up $sensorName notification")
         gatt.setCharacteristicNotification(characteristic, true)
@@ -684,27 +778,18 @@ class BleManager(private val context: Context) {
             handler.removeCallbacksAndMessages(null)
             Log.d("BleManager", "🛑 All pending handler callbacks cancelled in disable function")
             
-            // 즉시 PPG 강력 비활성화 (가장 먼저 실행)
-            emergencyDisablePpg(gatt)
-            
             // 각 센서 타입에 대해 setNotifyValue(false) 실행 (스위프트와 동일한 방식)
             // ✅ 주의: 배터리 센서는 비활성화하지 않음 (스위프트 코드와 동일하게 항상 활성 상태 유지)
             setNotifyValue(false, SensorType.EEG, gatt)
-            setNotifyValue(false, SensorType.PPG, gatt)
-            setNotifyValue(false, SensorType.ACC, gatt)
             
-            // 모든 센서에 대해 추가적인 강력한 비활성화 시도
+            // PPG와 ACC는 순차적으로 비활성화 (BLE 명령어 큐 충돌 방지)
             handler.postDelayed({
-                forceDisableEegSensor(gatt)
-                forceDisablePpgSensor(gatt)
-                forceDisableAccSensor(gatt)
-            }, 500)
+                setNotifyValue(false, SensorType.PPG, gatt)
+            }, 200)
             
-            // 추가로 PPG만 한번 더 강력하게 비활성화
             handler.postDelayed({
-                emergencyDisablePpg(gatt)
-                forceDisablePpgSensor(gatt)
-            }, 1500)
+                setNotifyValue(false, SensorType.ACC, gatt)
+            }, 400)
             
             // 모든 센서 상태 비활성화
             _isEegStarted.value = false
@@ -713,110 +798,6 @@ class BleManager(private val context: Context) {
             _isReceivingData.value = false
             
             Log.d("BleManager", "All sensor notifications disabled (배터리는 항상 활성 상태 유지)")
-        }
-    }
-    
-    // PPG 긴급 비활성화 (즉시 실행)
-    private fun emergencyDisablePpg(gatt: BluetoothGatt) {
-        Log.d("BleManager", "🔴 Emergency PPG disable")
-        try {
-            val ppgService = gatt.getService(PPG_SERVICE_UUID)
-            val ppgChar = ppgService?.getCharacteristic(PPG_CHAR_UUID)
-            
-            ppgChar?.let { char ->
-                // 즉시 notification 비활성화
-                gatt.setCharacteristicNotification(char, false)
-                Log.d("BleManager", "🔴 PPG notification immediately disabled")
-                
-                // descriptor 즉시 비활성화
-                val descriptor = char.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-                descriptor?.let { desc ->
-                    desc.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                    gatt.writeDescriptor(desc)
-                    Log.d("BleManager", "🔴 PPG descriptor immediately disabled")
-                }
-            } ?: Log.e("BleManager", "🔴 PPG characteristic not found for emergency disable")
-        } catch (e: Exception) {
-            Log.e("BleManager", "🔴 Emergency PPG disable failed: ${e.message}")
-        }
-    }
-    
-    // EEG 센서 강력한 비활성화
-    private fun forceDisableEegSensor(gatt: BluetoothGatt) {
-        val eegService = gatt.getService(EEG_NOTIFY_SERVICE_UUID)
-        val eegChar = eegService?.getCharacteristic(EEG_NOTIFY_CHAR_UUID)
-        
-        eegChar?.let { char ->
-            gatt.setCharacteristicNotification(char, false)
-            val descriptor = char.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-            descriptor?.let { desc ->
-                desc.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(desc)
-                
-                // 3차 시도: 추가 딜레이 후 다시 한번 비활성화
-                handler.postDelayed({
-                    gatt.setCharacteristicNotification(char, false)
-                    desc.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                    gatt.writeDescriptor(desc)
-                }, 1000)
-            }
-        }
-        
-        // EEG stop 명령 전송
-        val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
-        eegWriteChar?.let {
-            it.value = "stop".toByteArray()
-            gatt.writeCharacteristic(it)
-            
-            // 추가로 한번 더 stop 명령 전송
-            handler.postDelayed({
-                it.value = "stop".toByteArray()
-                gatt.writeCharacteristic(it)
-            }, 800)
-        }
-    }
-    
-    // PPG 센서 강력한 비활성화
-    private fun forceDisablePpgSensor(gatt: BluetoothGatt) {
-        val ppgService = gatt.getService(PPG_SERVICE_UUID)
-        val ppgChar = ppgService?.getCharacteristic(PPG_CHAR_UUID)
-        
-        ppgChar?.let { char ->
-            gatt.setCharacteristicNotification(char, false)
-            val descriptor = char.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-            descriptor?.let { desc ->
-                desc.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(desc)
-                
-                // 3차 시도: 추가 딜레이 후 다시 한번 비활성화
-                handler.postDelayed({
-                    gatt.setCharacteristicNotification(char, false)
-                    desc.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                    gatt.writeDescriptor(desc)
-                }, 1000)
-            }
-        }
-    }
-    
-    // ACC 센서 강력한 비활성화
-    private fun forceDisableAccSensor(gatt: BluetoothGatt) {
-        val accService = gatt.getService(ACCELEROMETER_SERVICE_UUID)
-        val accChar = accService?.getCharacteristic(ACCELEROMETER_CHAR_UUID)
-        
-        accChar?.let { char ->
-            gatt.setCharacteristicNotification(char, false)
-            val descriptor = char.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-            descriptor?.let { desc ->
-                desc.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                gatt.writeDescriptor(desc)
-                
-                // 3차 시도: 추가 딜레이 후 다시 한번 비활성화
-                handler.postDelayed({
-                    gatt.setCharacteristicNotification(char, false)
-                    desc.value = BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
-                    gatt.writeDescriptor(desc)
-                }, 1000)
-            }
         }
     }
     
@@ -924,17 +905,18 @@ class BleManager(private val context: Context) {
                 // 서비스가 완전히 준비되지 않았으면 추가 딜레이
                 val initialDelay = if (!servicesReady) {
                     Log.d("BleManager", "Services not fully ready, adding initial delay...")
-                    1500L
+                    2000L
                 } else {
-                    500L
+                    1000L
                 }
                 
-                // 큐 기반 순차 활성화 시작
+                // 배터리 센서 활성화 완료 후 실제 센서 활성화 시작
                 handler.postDelayed({
+                    Log.d("BleManager", "큐 기반 순차 활성화 시작 - 큐: $sensorActivationQueue")
                     activateNextSensorInQueue()
                 }, initialDelay)
                 
-            }, 1000) // 1단계 완료 후 1초 대기
+            }, 1200) // 1단계 완료 후 1.2초 대기 (BLE 명령어 안정화)
         }
     }
     
@@ -1012,7 +994,7 @@ class BleManager(private val context: Context) {
             if (selectedSensors.contains(SensorType.ACC)) {
                 val accFile = File(linkBandDir, "LinkBand_ACC_${timestamp}.csv")
                 accCsvWriter = FileWriter(accFile)
-                accCsvWriter?.write("Timestamp_ms,X,Y,Z\n")
+                accCsvWriter?.write("Timestamp_ms,Mode,X,Y,Z\n")
                 createdFiles.add("ACC=${accFile.name}")
                 Log.d("BleManager", "ACC CSV file created: ${accFile.name}")
             }
@@ -1079,11 +1061,12 @@ class BleManager(private val context: Context) {
         }
     }
     
-    private fun writeAccToCsv(data: AccData) {
+    private fun writeAccToCsv(data: ProcessedAccData) {
         if (_isRecording.value && accCsvWriter != null && _selectedSensors.value.contains(SensorType.ACC)) {
             try {
-                // 타임스탬프를 밀리초 단위로 저장 (더 읽기 쉽고 분석하기 좋음)
-                accCsvWriter?.write("${data.timestamp.time},${data.x},${data.y},${data.z}\n")
+                // 모드 정보와 함께 CSV에 저장
+                val modeText = if (data.mode == AccelerometerMode.RAW) "RAW" else "MOTION"
+                accCsvWriter?.write("${data.timestamp.time},$modeText,${data.x},${data.y},${data.z}\n")
                 accCsvWriter?.flush()
             } catch (e: Exception) {
                 Log.e("BleManager", "Error writing ACC to CSV", e)
@@ -1183,15 +1166,17 @@ class BleManager(private val context: Context) {
     
     private fun activatePpgSensorInternal() {
         bluetoothGatt?.let { gatt ->
+            Log.d("BleManager", "=== PPG 내부 활성화 시작 ===")
             val ppgService = gatt.getService(PPG_SERVICE_UUID)
             val ppgChar = ppgService?.getCharacteristic(PPG_CHAR_UUID)
             ppgChar?.let { 
+                Log.d("BleManager", "PPG characteristic found, setting up notification...")
                 handler.postDelayed({
                     setupNotification(gatt, it, "PPG")
                     _isPpgStarted.value = true
                     Log.d("BleManager", "PPG sensor activated, waiting for data confirmation...")
                 }, 500)
-            }
-        }
+            } ?: Log.e("BleManager", "PPG characteristic not found in activatePpgSensorInternal")
+        } ?: Log.e("BleManager", "BluetoothGatt is null in activatePpgSensorInternal")
     }
 } 
