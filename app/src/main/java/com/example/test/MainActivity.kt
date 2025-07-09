@@ -146,7 +146,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                             
-                            composable("fileList") {
+                            composable("files") {
                                 FileListScreen(
                                     onBack = {
                                         navController.popBackStack()
