@@ -39,9 +39,9 @@ import com.example.test.data.CollectionMode
 import com.example.test.data.SensorBatchConfiguration
 import kotlin.math.roundToInt
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.ArrowForward
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -702,7 +702,7 @@ fun DataScreen(
                 )
             ) {
                 Text(
-                    text = "🔌 연결 해제",
+                    text = "연결 해제",
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
                 )
@@ -1085,9 +1085,9 @@ private fun SensorConfigRow(
         ) {
             Icon(
                 imageVector = when (sensorType) {
-                    SensorType.EEG -> Icons.Default.Star
+                    SensorType.EEG -> Icons.Default.Share
                     SensorType.PPG -> Icons.Default.Favorite
-                    SensorType.ACC -> Icons.Default.Phone
+                    SensorType.ACC -> Icons.Default.ArrowForward
                 },
                 contentDescription = null,
                 tint = if (isSelected) {
@@ -1156,9 +1156,9 @@ private fun SensorCheckboxItem(
     enabled: Boolean
 ) {
     val sensorIcon = when (sensorType) {
-        SensorType.EEG -> Icons.Default.Star
+        SensorType.EEG -> Icons.Default.Share
         SensorType.PPG -> Icons.Default.Favorite
-        SensorType.ACC -> Icons.Default.Phone
+        SensorType.ACC -> Icons.Default.ArrowForward
     }
     
     val sensorColor = when (sensorType) {
