@@ -44,10 +44,11 @@ enum class SensorType {
     EEG, PPG, ACC
 }
 
+// BLE(블루투스 저에너지) 센서 데이터 관리 및 수집, 배치, 기록, 상태 관리 등 LinkBand 앱의 핵심 BLE 로직을 담당하는 클래스
 @SuppressLint("MissingPermission")
 class BleManager(private val context: Context) {
     
-    // UUID 상수들 (파이썬 코드에서 추출)
+    // UUID 상수들 (LinkBand BLE 서비스 및 특성)
     companion object {
         val ACCELEROMETER_SERVICE_UUID = UUID.fromString("75c276c3-8f97-20bc-a143-b354244886d4")
         val ACCELEROMETER_CHAR_UUID = UUID.fromString("d3d46a35-4394-e9aa-5a43-e7921120aaed")
@@ -67,16 +68,19 @@ class BleManager(private val context: Context) {
         const val ACC_SAMPLE_RATE = 30
     }
     
+    // 블루투스 시스템 서비스 및 핸들러
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private val bluetoothAdapter = bluetoothManager.adapter
     private val bluetoothLeScanner: BluetoothLeScanner = bluetoothAdapter.bluetoothLeScanner
     private val handler = Handler(Looper.getMainLooper())
     
-    // 센서 데이터 파서 추가
+    // 센서 데이터 파서 (바이너리 → 구조화 데이터)
     private val sensorDataParser = SensorDataParser(com.example.test.data.SensorConfiguration.default)
     
+    // BLE 연결 및 상태 관리
     private var bluetoothGatt: BluetoothGatt? = null
     
+    // 센서별 데이터 StateFlow (UI와 연동)
     private val _scannedDevices = MutableStateFlow<List<BluetoothDevice>>(emptyList())
     val scannedDevices: StateFlow<List<BluetoothDevice>> = _scannedDevices.asStateFlow()
     
@@ -98,14 +102,14 @@ class BleManager(private val context: Context) {
     private val _accData = MutableStateFlow<List<AccData>>(emptyList())
     val accData: StateFlow<List<AccData>> = _accData.asStateFlow()
     
-    // 가속도계 모드 관련 변수들 추가
+    // 가속도계 모드 (원시값/움직임)
     private val _accelerometerMode = MutableStateFlow(AccelerometerMode.RAW)
     val accelerometerMode: StateFlow<AccelerometerMode> = _accelerometerMode.asStateFlow()
     
     private val _processedAccData = MutableStateFlow<List<ProcessedAccData>>(emptyList())
     val processedAccData: StateFlow<List<ProcessedAccData>> = _processedAccData.asStateFlow()
     
-    // 중력 추정을 위한 변수들 (스위프트와 동일)
+    // 중력 추정 관련 변수 (움직임 모드용)
     private var gravityX: Double = 0.0
     private var gravityY: Double = 0.0
     private var gravityZ: Double = 0.0
@@ -129,7 +133,7 @@ class BleManager(private val context: Context) {
     // 데이터 수집 설정
     private val dataCollectionConfigs = mutableMapOf<SensorType, DataCollectionConfig>()
     
-    // 시간 기반 배치 관리자들
+    // 시간 기반 배치 관리자 (센서별)
     private var eegTimeBatchManager: TimeBatchManager<EegData>? = null
     private var ppgTimeBatchManager: TimeBatchManager<PpgData>? = null
     private var accTimeBatchManager: TimeBatchManager<AccData>? = null
@@ -206,6 +210,7 @@ class BleManager(private val context: Context) {
     private var lastPpgDataSize = 0  
     private var lastAccDataSize = 0
     
+    // BLE 스캔 콜백 (LinkBand 디바이스 필터)
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
@@ -222,6 +227,7 @@ class BleManager(private val context: Context) {
         }
     }
     
+    // BLE GATT 콜백 (연결, 서비스, 데이터 수신 등)
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             when (newState) {
@@ -357,6 +363,7 @@ class BleManager(private val context: Context) {
         }
     }
     
+    // BLE 스캔/연결/서비스/센서 제어 함수들
     fun startScan() {
         if (!_isScanning.value) {
             _scannedDevices.value = emptyList()
@@ -610,6 +617,7 @@ class BleManager(private val context: Context) {
         }
     }
     
+    // 센서별 데이터 파싱 함수 (EEG/PPG/ACC/Battery)
     private fun parseEegData(data: ByteArray) {
         try {
             val readings = sensorDataParser.parseEegData(data)
@@ -717,7 +725,7 @@ class BleManager(private val context: Context) {
         }
     }
     
-    // 센서 선택 제어 함수들
+    // 센서 선택/모드/배치/기록 등 제어 함수들
     fun selectSensor(sensor: SensorType) {
         val currentSelected = _selectedSensors.value.toMutableSet()
         currentSelected.add(sensor)
@@ -1014,7 +1022,7 @@ class BleManager(private val context: Context) {
             if (selectedSensors.contains(SensorType.EEG)) {
                 val eegFile = File(linkBandDir, "LinkBand_EEG_${timestamp}.csv")
                 eegCsvWriter = FileWriter(eegFile)
-                eegCsvWriter?.write("Timestamp_ms,Ch1_Raw,Ch2_Raw,Channel1_uV,Channel2_uV,LeadOff\n")
+                eegCsvWriter?.write("timestamp,ch1Raw,ch2Raw,ch1uV,ch2uV,leadOff\n")
                 createdFiles.add("EEG=${eegFile.name}")
                 Log.d("BleManager", "EEG CSV file created: ${eegFile.name}")
             }
@@ -1022,7 +1030,7 @@ class BleManager(private val context: Context) {
             if (selectedSensors.contains(SensorType.PPG)) {
                 val ppgFile = File(linkBandDir, "LinkBand_PPG_${timestamp}.csv")
                 ppgCsvWriter = FileWriter(ppgFile)
-                ppgCsvWriter?.write("Timestamp_ms,Red,IR\n")
+                ppgCsvWriter?.write("timestamp,red,ir\n")
                 createdFiles.add("PPG=${ppgFile.name}")
                 Log.d("BleManager", "PPG CSV file created: ${ppgFile.name}")
             }
@@ -1030,7 +1038,7 @@ class BleManager(private val context: Context) {
             if (selectedSensors.contains(SensorType.ACC)) {
                 val accFile = File(linkBandDir, "LinkBand_ACC_${timestamp}.csv")
                 accCsvWriter = FileWriter(accFile)
-                accCsvWriter?.write("Timestamp_ms,Mode,X,Y,Z\n")
+                accCsvWriter?.write("timestamp,x,y,z\n")
                 createdFiles.add("ACC=${accFile.name}")
                 Log.d("BleManager", "ACC CSV file created: ${accFile.name}")
             }
@@ -1100,9 +1108,8 @@ class BleManager(private val context: Context) {
     private fun writeAccToCsv(data: ProcessedAccData) {
         if (_isRecording.value && accCsvWriter != null && _selectedSensors.value.contains(SensorType.ACC)) {
             try {
-                // 모드 정보와 함께 CSV에 저장
-                val modeText = if (data.mode == AccelerometerMode.RAW) "RAW" else "MOTION"
-                accCsvWriter?.write("${data.timestamp.time},$modeText,${data.x},${data.y},${data.z}\n")
+                // 모드 정보 없이 타임스탬프, x, y, z만 저장
+                accCsvWriter?.write("${data.timestamp.time},${data.x},${data.y},${data.z}\n")
                 accCsvWriter?.flush()
             } catch (e: Exception) {
                 Log.e("BleManager", "Error writing ACC to CSV", e)
