@@ -1463,26 +1463,29 @@ class BleManager(private val context: Context) {
      */
     private fun addToAccBuffer(reading: AccData) {
         val config = dataCollectionConfigs[SensorType.ACC] ?: return
-        
         when (val mode = config.mode) {
             is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
-                // 시간 기반 모드: TimeBatchManager 사용
                 accTimeBatchManager?.addSample(reading)?.let { batch ->
                     Log.d("BleManager", "📦 ACC 시간 배치 완성: ${batch.size}개 샘플")
-                    logAccBatch(batch)
+                    // ProcessedAccData에서 해당 타임스탬프 구간만 추출
+                    val processedBatch = batch.mapNotNull { acc ->
+                        _processedAccData.value.find { it.timestamp == acc.timestamp }
+                    }
+                    logAccBatch(processedBatch)
                     _accBatchData.value = batch
                 }
             }
             is DataCollectionConfig.DataCollectionMode.SampleCount -> {
-                // 샘플 기반 모드: 기존 버퍼 사용
                 accSampleBuffer.add(reading)
-                
                 if (accSampleBuffer.size >= mode.count) {
                     val batch = accSampleBuffer.take(mode.count)
                     accSampleBuffer.removeAll(batch.toSet())
-                    
                     Log.d("BleManager", "📦 ACC 샘플 배치 완성: ${batch.size}개 샘플")
-                    logAccBatch(batch)
+                    // ProcessedAccData에서 해당 타임스탬프 구간만 추출
+                    val processedBatch = batch.mapNotNull { acc ->
+                        _processedAccData.value.find { it.timestamp == acc.timestamp }
+                    }
+                    logAccBatch(processedBatch)
                     _accBatchData.value = batch
                 }
             }
@@ -1514,10 +1517,21 @@ class BleManager(private val context: Context) {
         Log.i("BleManager", "------------------------------------")
     }
     
-    private fun logAccBatch(batch: List<AccData>) {
+    private fun logAccBatch(batch: List<ProcessedAccData>) {
         Log.i("BleManager", "--- ACC Batch (${batch.size} samples) ---")
+        val mode = accelerometerMode.value
         batch.forEachIndexed { index, data ->
-            Log.d("BleManager", "  [${index + 1}] timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}")
+            if (mode == AccelerometerMode.RAW) {
+                Log.d(
+                    "BleManager",
+                    "  [${index + 1}] timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}"
+                )
+            } else {
+                Log.d(
+                    "BleManager",
+                    "  [${index + 1}] timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}"
+                )
+            }
         }
         Log.i("BleManager", "------------------------------------")
     }

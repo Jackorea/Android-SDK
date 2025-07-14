@@ -649,9 +649,8 @@ fun DataScreen(
                         if (processedAccData.isNotEmpty()) {
                             val latest = processedAccData.takeLast(3)
                             latest.forEach { data ->
-                                val modePrefix = if (data.mode == AccelerometerMode.RAW) "" else "[선형] "
                                 Text(
-                                    text = "${modePrefix}timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}",
+                                    text = "timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}",
                                     fontSize = 12.sp
                                 )
                             }
