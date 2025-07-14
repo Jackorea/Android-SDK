@@ -1495,7 +1495,13 @@ class BleManager(private val context: Context) {
         Log.i("BleManager", "--- EEG Batch (${batch.size} samples) ---")
         batch.forEachIndexed { index, data ->
             val leadOffValue = if (data.leadOff) 1 else 0
-            Log.d("BleManager", "  [${index + 1}] Timestamp: ${data.timestamp.time}, Ch1: ${data.channel1.roundToInt()}µV, Ch2: ${data.channel2.roundToInt()}µV, LeadOff: $leadOffValue")
+            Log.d(
+                "BleManager",
+                "  [${index + 1}] timestamp: ${data.timestamp.time}, " +
+                "ch1Raw: ${data.ch1Raw}, ch2Raw: ${data.ch2Raw}, " +
+                "ch1uV: ${data.channel1.roundToInt()}µV, ch2uV: ${data.channel2.roundToInt()}µV, " +
+                "leadOff: $leadOffValue"
+            )
         }
         Log.i("BleManager", "------------------------------------")
     }
@@ -1503,7 +1509,7 @@ class BleManager(private val context: Context) {
     private fun logPpgBatch(batch: List<PpgData>) {
         Log.i("BleManager", "--- PPG Batch (${batch.size} samples) ---")
         batch.forEachIndexed { index, data ->
-            Log.d("BleManager", "  [${index + 1}] Timestamp: ${data.timestamp.time}, Red: ${data.red}, IR: ${data.ir}")
+            Log.d("BleManager", "  [${index + 1}] timestamp: ${data.timestamp.time}, red: ${data.red}, ir: ${data.ir}")
         }
         Log.i("BleManager", "------------------------------------")
     }
@@ -1511,7 +1517,7 @@ class BleManager(private val context: Context) {
     private fun logAccBatch(batch: List<AccData>) {
         Log.i("BleManager", "--- ACC Batch (${batch.size} samples) ---")
         batch.forEachIndexed { index, data ->
-            Log.d("BleManager", "  [${index + 1}] Timestamp: ${data.timestamp.time}, X: ${data.x}, Y: ${data.y}, Z: ${data.z}")
+            Log.d("BleManager", "  [${index + 1}] timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}")
         }
         Log.i("BleManager", "------------------------------------")
     }

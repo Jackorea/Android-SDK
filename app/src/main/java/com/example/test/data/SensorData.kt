@@ -57,7 +57,7 @@ data class SensorDataState(
 )
 
 // 파싱 에러를 위한 커스텀 예외 클래스
-class SensorDataParsingException(message: String) : Exception(message)
+class SensorDataParsingException(message: String) : Exception(message) 
 
 // 데이터 수집 모드를 정의하는 enum
 enum class CollectionMode(val description: String) {

@@ -125,14 +125,14 @@ fun DataScreen(
                 
                 Row {
                     // 저장된 파일 보기 아이콘만 유지
-                    IconButton(
-                        onClick = onShowFileList
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Menu,
-                            contentDescription = "저장된 파일 보기",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                IconButton(
+                    onClick = onShowFileList
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "저장된 파일 보기",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                     }
                 }
             }
@@ -266,13 +266,13 @@ fun DataScreen(
                                     contentDescription = "활성",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(16.dp)
-                                )
-                                Text(
+                            )
+                            Text(
                                     text = "수집 중",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Medium
-                                )
+                            )
                             }
                         }
                     }
@@ -320,7 +320,7 @@ fun DataScreen(
                                         else -> RoundedCornerShape(0.dp)
                                     }
                                 ) {
-                                    Text(
+                            Text(
                                         text = displayName,
                                         style = MaterialTheme.typography.bodySmall
                                     )
@@ -339,7 +339,7 @@ fun DataScreen(
                             CollectionMode.MINUTES -> "센서별 수집 시간 (분)"
                         }
                         
-                        Text(
+                            Text(
                             text = title,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Medium,
@@ -438,8 +438,8 @@ fun DataScreen(
                                     Text(
                                         text = "원시값",
                                         style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
+                            )
+                        }
                                 
                                 Button(
                                     onClick = { onSetAccelerometerMode(AccelerometerMode.MOTION) },
@@ -457,7 +457,7 @@ fun DataScreen(
                                         bottomEnd = 8.dp
                                     )
                                 ) {
-                                    Text(
+                            Text(
                                         text = "움직임",
                                         style = MaterialTheme.typography.bodySmall
                                     )
@@ -478,16 +478,16 @@ fun DataScreen(
                     ) {
                         // 데이터 수집 컨트롤
                         if (isReceivingData) {
-                            Button(
-                                onClick = {
-                                    if (isRecording) {
-                                        showStopCollectionDialog = true
-                                    } else {
-                                        onStopSelectedSensors()
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
+                    Button(
+                        onClick = {
+                                if (isRecording) {
+                                    showStopCollectionDialog = true
+                                } else {
+                                    onStopSelectedSensors()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.error
                                 )
                             ) {
@@ -514,9 +514,9 @@ fun DataScreen(
                                 Text("수집 시작 (${selectedSensors.size}개)")
                             }
                         }
-                        
+                    
                         // 기록 컨트롤 (수집 시작 후 표시)
-                        if (isReceivingData) {
+                    if (isReceivingData) {
                             Card(
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
@@ -536,10 +536,10 @@ fun DataScreen(
                                     )
                                     
                                     if (isRecording) {
-                                        Button(
+                        Button(
                                             onClick = { onStopRecording() },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = ButtonDefaults.buttonColors(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
                                                 containerColor = MaterialTheme.colorScheme.error
                                             )
                                         ) {
@@ -562,7 +562,7 @@ fun DataScreen(
                                                 tint = MaterialTheme.colorScheme.error,
                                                 modifier = Modifier.size(12.dp)
                                             )
-                                            Text(
+                            Text(
                                                 text = "데이터를 기록하고 있습니다...",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.error
@@ -600,7 +600,7 @@ fun DataScreen(
                             val latest = eegData.takeLast(3)
                             latest.forEach { data ->
                                 Text(
-                                    text = "Timestamp: ${data.timestamp.time}, ch1Raw: ${data.ch1Raw}, ch2Raw: ${data.ch2Raw}, ch1uV: ${data.channel1.roundToInt()}µV, ch2uV: ${data.channel2.roundToInt()}µV, Lead: ${if (data.leadOff) "1" else "0"}",
+                                    text = "timestamp: ${data.timestamp.time}, ch1Raw: ${data.ch1Raw}, ch2Raw: ${data.ch2Raw}, ch1uV: ${data.channel1.roundToInt()}µV, ch2uV: ${data.channel2.roundToInt()}µV, leadOff: ${if (data.leadOff) "1" else "0"}",
                                     fontSize = 12.sp
                                 )
                             }
@@ -625,7 +625,7 @@ fun DataScreen(
                             val latest = ppgData.takeLast(3)
                             latest.forEach { data ->
                                 Text(
-                                    text = "Timestamp: ${data.timestamp.time}, Red: ${data.red}, IR: ${data.ir}",
+                                    text = "timestamp: ${data.timestamp.time}, red: ${data.red}, ir: ${data.ir}",
                                     fontSize = 12.sp
                                 )
                             }
@@ -651,7 +651,7 @@ fun DataScreen(
                             latest.forEach { data ->
                                 val modePrefix = if (data.mode == AccelerometerMode.RAW) "" else "[선형] "
                                 Text(
-                                    text = "${modePrefix}Timestamp: ${data.timestamp.time}, X: ${data.x}, Y: ${data.y}, Z: ${data.z}",
+                                    text = "${modePrefix}timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}",
                                     fontSize = 12.sp
                                 )
                             }
