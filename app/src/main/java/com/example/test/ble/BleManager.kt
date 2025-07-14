@@ -1526,19 +1526,11 @@ class BleManager(private val context: Context) {
     
     private fun logAccBatch(batch: List<ProcessedAccData>) {
         Log.i("BleManager", "--- ACC Batch (${batch.size} samples) ---")
-        val mode = accelerometerMode.value
         batch.forEachIndexed { index, data ->
-            if (mode == AccelerometerMode.RAW) {
-                Log.d(
-                    "BleManager",
-                    "  [${index + 1}] timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}"
-                )
-            } else {
-                Log.d(
-                    "BleManager",
-                    "  [${index + 1}] timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}"
-                )
-            }
+            Log.d(
+                "BleManager",
+                "  [${index + 1}] timestamp: ${data.timestamp.time}, x: ${data.x}, y: ${data.y}, z: ${data.z}"
+            )
         }
         Log.i("BleManager", "------------------------------------")
     }
