@@ -28,15 +28,15 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Environment
 import androidx.core.content.FileProvider
-import com.example.test.ble.SensorType
-import com.example.test.data.AccData
-import com.example.test.data.BatteryData
-import com.example.test.data.EegData
-import com.example.test.data.PpgData
-import com.example.test.data.AccelerometerMode
-import com.example.test.data.ProcessedAccData
-import com.example.test.data.CollectionMode
-import com.example.test.data.SensorBatchConfiguration
+import com.example.linkbandsdk.SensorType
+import com.example.linkbandsdk.AccData
+import com.example.linkbandsdk.BatteryData
+import com.example.linkbandsdk.EegData
+import com.example.linkbandsdk.PpgData
+import com.example.linkbandsdk.AccelerometerMode
+import com.example.linkbandsdk.ProcessedAccData
+import com.example.linkbandsdk.CollectionMode
+import com.example.linkbandsdk.SensorBatchConfiguration
 import kotlin.math.roundToInt
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Share
@@ -65,7 +65,7 @@ fun DataScreen(
     selectedCollectionMode: CollectionMode,
     getSensorConfiguration: (SensorType) -> SensorBatchConfiguration?,
     onDisconnect: () -> Unit,
-    onNavigateToScan: () -> Unit,
+    onNavigateToScan: () -> Unit = {}, // 기본값 추가
     onSelectSensor: (SensorType) -> Unit,
     onDeselectSensor: (SensorType) -> Unit,
     onStartSelectedSensors: () -> Unit,

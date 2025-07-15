@@ -22,7 +22,7 @@ fun ScanScreen(
     onStartScan: () -> Unit,
     onStopScan: () -> Unit,
     onConnect: (BluetoothDevice) -> Unit,
-    onNavigateToData: () -> Unit,
+    onNavigateToData: () -> Unit = {}, // 기본값 추가
     onEnableAutoReconnect: () -> Unit,
     onDisableAutoReconnect: () -> Unit
 ) {

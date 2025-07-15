@@ -10,7 +10,12 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.*
+//import androidx.compose.runtime.*
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
+
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -23,6 +28,12 @@ import com.example.test.ui.theme.TestTheme
 import com.example.test.viewmodel.MainViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.example.linkbandsdk.EegData
+import com.example.linkbandsdk.PpgData
+import com.example.linkbandsdk.AccData
+import com.example.linkbandsdk.BatteryData
+import com.example.linkbandsdk.AccelerometerMode
+import com.example.linkbandsdk.CollectionMode
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
@@ -34,6 +45,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             TestTheme {
                 val navController = rememberNavController()
+                val isConnected by viewModel.isConnected.collectAsState(initial = false)
+
+                // 연결 상태 변화에 따라 네비게이션을 안전하게 처리
+                LaunchedEffect(isConnected) {
+                    val currentRoute = navController.currentBackStackEntry?.destination?.route
+                    if (isConnected && currentRoute != "data") {
+                        navController.navigate("data") {
+                            popUpTo("scan") { inclusive = true }
+                        }
+                    } else if (!isConnected && currentRoute != "scan") {
+                        navController.navigate("scan") {
+                            popUpTo("data") { inclusive = true }
+                        }
+                    }
+                }
                 
                 // BLE 권한 요청
                 val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -66,10 +92,10 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(innerPadding)
                         ) {
                             composable("scan") {
-                                val scannedDevices by viewModel.scannedDevices.collectAsState()
-                                val isScanning by viewModel.isScanning.collectAsState()
-                                val isConnected by viewModel.isConnected.collectAsState()
-                                val isAutoReconnectEnabled by viewModel.isAutoReconnectEnabled.collectAsState()
+                                val scannedDevices by viewModel.scannedDevices.collectAsState(initial = emptyList())
+                                val isScanning by viewModel.isScanning.collectAsState(initial = false)
+                                val isConnected by viewModel.isConnected.collectAsState(initial = false)
+                                val isAutoReconnectEnabled by viewModel.isAutoReconnectEnabled.collectAsState(initial = false)
                                 
                                 ScanScreen(
                                     scannedDevices = scannedDevices,
@@ -79,34 +105,29 @@ class MainActivity : ComponentActivity() {
                                     onStartScan = { viewModel.startScan() },
                                     onStopScan = { viewModel.stopScan() },
                                     onConnect = { device -> viewModel.connectToDevice(device) },
-                                    onNavigateToData = { 
-                                        navController.navigate("data") {
-                                            popUpTo("scan") { inclusive = true }
-                                        }
-                                    },
                                     onEnableAutoReconnect = { viewModel.enableAutoReconnect() },
                                     onDisableAutoReconnect = { viewModel.disableAutoReconnect() }
                                 )
                             }
                             
                             composable("data") {
-                                val eegData by viewModel.eegData.collectAsState()
-                                val ppgData by viewModel.ppgData.collectAsState()
-                                val accData by viewModel.accData.collectAsState()
-                                val batteryData by viewModel.batteryData.collectAsState()
-                                val isConnected by viewModel.isConnected.collectAsState()
-                                val isEegStarted by viewModel.isEegStarted.collectAsState()
-                                val isPpgStarted by viewModel.isPpgStarted.collectAsState()
-                                val isAccStarted by viewModel.isAccStarted.collectAsState()
-                                val selectedSensors by viewModel.selectedSensors.collectAsState()
-                                val isReceivingData by viewModel.isReceivingData.collectAsState()
-                                val isRecording by viewModel.isRecording.collectAsState()
-                                val isAutoReconnectEnabled by viewModel.isAutoReconnectEnabled.collectAsState()
-                                val connectedDeviceName by viewModel.connectedDeviceName.collectAsState()
-                                val accelerometerMode by viewModel.accelerometerMode.collectAsState()
-                                val processedAccData by viewModel.processedAccData.collectAsState()
+                                val eegData by viewModel.eegData.collectAsState(initial = emptyList())
+                                val ppgData by viewModel.ppgData.collectAsState(initial = emptyList())
+                                val accData by viewModel.accData.collectAsState(initial = emptyList())
+                                val batteryData by viewModel.batteryData.collectAsState(initial = null)
+                                val isConnected by viewModel.isConnected.collectAsState(initial = false)
+                                val isEegStarted by viewModel.isEegStarted.collectAsState(initial = false)
+                                val isPpgStarted by viewModel.isPpgStarted.collectAsState(initial = false)
+                                val isAccStarted by viewModel.isAccStarted.collectAsState(initial = false)
+                                val selectedSensors by viewModel.selectedSensors.collectAsState(initial = emptySet())
+                                val isReceivingData by viewModel.isReceivingData.collectAsState(initial = false)
+                                val isRecording by viewModel.isRecording.collectAsState(initial = false)
+                                val isAutoReconnectEnabled by viewModel.isAutoReconnectEnabled.collectAsState(initial = false)
+                                val connectedDeviceName by viewModel.connectedDeviceName.collectAsState(initial = null)
+                                val accelerometerMode by viewModel.accelerometerMode.collectAsState(initial = com.example.linkbandsdk.AccelerometerMode.RAW)
+                                val processedAccData by viewModel.processedAccData.collectAsState(initial = emptyList())
                                 // 배치 수집 관련 상태들 추가
-                                val selectedCollectionMode by viewModel.selectedCollectionMode.collectAsState()
+                                val selectedCollectionMode by viewModel.selectedCollectionMode.collectAsState(initial = com.example.linkbandsdk.CollectionMode.SAMPLE_COUNT)
                                 
                                 DataScreen(
                                     eegData = eegData,
@@ -130,11 +151,6 @@ class MainActivity : ComponentActivity() {
                                         viewModel.getSensorConfiguration(sensorType)
                                     },
                                     onDisconnect = { viewModel.disconnect() },
-                                    onNavigateToScan = { 
-                                        navController.navigate("scan") {
-                                            popUpTo("data") { inclusive = true }
-                                        }
-                                    },
                                     onSelectSensor = { sensor -> viewModel.selectSensor(sensor) },
                                     onDeselectSensor = { sensor -> viewModel.deselectSensor(sensor) },
                                     onStartSelectedSensors = { viewModel.startSelectedSensors() },
