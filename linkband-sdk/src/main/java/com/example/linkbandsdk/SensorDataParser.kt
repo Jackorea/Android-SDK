@@ -71,11 +71,11 @@ class SensorDataParser(
             */
         }
         
-        // 안드로이드 앱에서 데이터 수신 시점의 현재 시간 사용
-        val currentTimeMs = System.currentTimeMillis()
-        // 패킷의 가장 최근 샘플을 현재 시간으로 설정하고, 이전 샘플들은 역순으로 계산
-        val sampleIntervalMs = (1000.0 / configuration.eegSampleRate)
-        var timestamp = currentTimeMs - (actualSampleCount - 1) * sampleIntervalMs
+        // BLE 패킷 헤더에서 하드웨어 timestamp 추출
+        val baseTimestampRaw = extractTimestamp(data)
+        val baseTimestampSec = baseTimestampRaw / 32.768 / 1000.0 // 초 단위 (파이썬과 동일)
+        val sampleIntervalSec = 1.0 / configuration.eegSampleRate
+        var timestampSec = baseTimestampSec - ((actualSampleCount - 1) * sampleIntervalSec)
         
         val readings = mutableListOf<EegData>()
         
@@ -118,7 +118,7 @@ class SensorDataParser(
                        configuration.eegResolution * configuration.microVoltMultiplier
             
             val reading = EegData(
-                timestamp = Date(timestamp.toLong()),
+                timestamp = Date((timestampSec * 1000).toLong()),
                 leadOff = leadOffNormalized,
                 channel1 = ch1uV,
                 channel2 = ch2uV,
@@ -129,7 +129,7 @@ class SensorDataParser(
             readings.add(reading)
             
             // 다음 샘플을 위한 타임스탬프 증가
-            timestamp += sampleIntervalMs
+            timestampSec += sampleIntervalSec
         }
         
         return readings
@@ -165,11 +165,11 @@ class SensorDataParser(
             */
         }
         
-        // 안드로이드 앱에서 데이터 수신 시점의 현재 시간 사용
-        val currentTimeMs = System.currentTimeMillis()
-        // 패킷의 가장 최근 샘플을 현재 시간으로 설정하고, 이전 샘플들은 역순으로 계산
-        val sampleIntervalMs = (1000.0 / configuration.ppgSampleRate)
-        var timestamp = currentTimeMs - (actualSampleCount - 1) * sampleIntervalMs
+        // BLE 패킷 헤더에서 하드웨어 timestamp 추출
+        val baseTimestampRaw = extractTimestamp(data)
+        val baseTimestampSec = baseTimestampRaw / 32.768 / 1000.0 // 초 단위 (파이썬과 동일)
+        val sampleIntervalSec = 1.0 / configuration.ppgSampleRate
+        var timestampSec = baseTimestampSec - ((actualSampleCount - 1) * sampleIntervalSec)
         
         val readings = mutableListOf<PpgData>()
         
@@ -191,7 +191,7 @@ class SensorDataParser(
                     (data[i+5].toInt() and 0xFF)
             
             val reading = PpgData(
-                timestamp = Date(timestamp.toLong()),
+                timestamp = Date((timestampSec * 1000).toLong()),
                 red = red,
                 ir = ir
             )
@@ -199,7 +199,7 @@ class SensorDataParser(
             readings.add(reading)
             
             // 다음 샘플을 위한 타임스탬프 증가
-            timestamp += sampleIntervalMs
+            timestampSec += sampleIntervalSec
         }
         
         return readings
@@ -216,50 +216,37 @@ class SensorDataParser(
     fun parseAccelerometerData(data: ByteArray): List<AccData> {
         val sampleSize = 6
         val minPacketSize = HEADER_SIZE + sampleSize
-        
         if (data.size < minPacketSize) {
             throw SensorDataParsingException(
                 "ACCEL packet too short: ${data.size} bytes (minimum: $minPacketSize)"
             )
         }
-        
-        // 안드로이드 앱에서 데이터 수신 시점의 현재 시간 사용
-        val currentTimeMs = System.currentTimeMillis()
-        
         val dataWithoutHeaderCount = data.size - HEADER_SIZE
         if (dataWithoutHeaderCount < sampleSize) {
             throw SensorDataParsingException(
                 "ACCEL packet has header but not enough data for one sample"
             )
         }
-        
         val sampleCount = dataWithoutHeaderCount / sampleSize
+        val baseTimestampRaw = extractTimestamp(data)
+        val baseTimestampSec = baseTimestampRaw / 32.768 / 1000.0 // 초 단위 (파이썬과 동일)
+        val sampleIntervalSec = 1.0 / configuration.accelerometerSampleRate
+        var timestampSec = baseTimestampSec - ((sampleCount - 1) * sampleIntervalSec)
         val readings = mutableListOf<AccData>()
-        
-        // 패킷의 가장 최근 샘플을 현재 시간으로 설정하고, 이전 샘플들은 역순으로 계산
-        val sampleIntervalMs = (1000.0 / configuration.accelerometerSampleRate)
-        var timestamp = currentTimeMs - (sampleCount - 1) * sampleIntervalMs
-        
         for (i in 0 until sampleCount) {
             val baseInFullPacket = HEADER_SIZE + (i * sampleSize)
-            // 하드웨어 사양에 따라 홀수 번째 바이트 사용
-            val x = (data[baseInFullPacket + 1].toInt() and 0xFF).toShort()  // data[i+1]
-            val y = (data[baseInFullPacket + 3].toInt() and 0xFF).toShort()  // data[i+3]
-            val z = (data[baseInFullPacket + 5].toInt() and 0xFF).toShort()  // data[i+5]
-            
+            val x = (data[baseInFullPacket + 1].toInt() and 0xFF).toShort()
+            val y = (data[baseInFullPacket + 3].toInt() and 0xFF).toShort()
+            val z = (data[baseInFullPacket + 5].toInt() and 0xFF).toShort()
             val reading = AccData(
-                timestamp = Date(timestamp.toLong()),
+                timestamp = Date((timestampSec * 1000).toLong()),
                 x = x,
                 y = y,
                 z = z
             )
-            
             readings.add(reading)
-            
-            // 다음 샘플을 위한 타임스탬프 증가
-            timestamp += sampleIntervalMs
+            timestampSec += sampleIntervalSec
         }
-        
         return readings
     }
     

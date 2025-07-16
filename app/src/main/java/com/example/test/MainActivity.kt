@@ -45,21 +45,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             TestTheme {
                 val navController = rememberNavController()
-                val isConnected by viewModel.isConnected.collectAsState(initial = false)
-
-                // 연결 상태 변화에 따라 네비게이션을 안전하게 처리
-                LaunchedEffect(isConnected) {
-                    val currentRoute = navController.currentBackStackEntry?.destination?.route
-                    if (isConnected && currentRoute != "data") {
-                        navController.navigate("data") {
-                            popUpTo("scan") { inclusive = true }
-                        }
-                    } else if (!isConnected && currentRoute != "scan") {
-                        navController.navigate("scan") {
-                            popUpTo("data") { inclusive = true }
-                        }
-                    }
-                }
                 
                 // BLE 권한 요청
                 val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -78,7 +63,7 @@ class MainActivity : ComponentActivity() {
                 
                 val permissionState = rememberMultiplePermissionsState(permissions)
                 
-                LaunchedEffect(Unit) {
+                LaunchedEffect(permissionState.allPermissionsGranted) {
                     if (!permissionState.allPermissionsGranted) {
                         permissionState.launchMultiplePermissionRequest()
                     }
@@ -105,8 +90,14 @@ class MainActivity : ComponentActivity() {
                                     onStartScan = { viewModel.startScan() },
                                     onStopScan = { viewModel.stopScan() },
                                     onConnect = { device -> viewModel.connectToDevice(device) },
+                                    onNavigateToData = { 
+                                        navController.navigate("data") {
+                                            popUpTo("scan") { inclusive = true }
+                                        }
+                                    },
                                     onEnableAutoReconnect = { viewModel.enableAutoReconnect() },
-                                    onDisableAutoReconnect = { viewModel.disableAutoReconnect() }
+                                    onDisableAutoReconnect = { viewModel.disableAutoReconnect() },
+                                    navController = navController
                                 )
                             }
                             
@@ -151,6 +142,11 @@ class MainActivity : ComponentActivity() {
                                         viewModel.getSensorConfiguration(sensorType)
                                     },
                                     onDisconnect = { viewModel.disconnect() },
+                                    onNavigateToScan = { 
+                                        navController.navigate("scan") {
+                                            popUpTo("data") { inclusive = true }
+                                        }
+                                    },
                                     onSelectSensor = { sensor -> viewModel.selectSensor(sensor) },
                                     onDeselectSensor = { sensor -> viewModel.deselectSensor(sensor) },
                                     onStartSelectedSensors = { viewModel.startSelectedSensors() },
@@ -178,7 +174,8 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onMinutesChange = { sensorType, minutes, text ->
                                         viewModel.updateSensorMinutes(sensorType, minutes, text)
-                                    }
+                                    },
+                                    navController = navController
                                 )
                             }
                             

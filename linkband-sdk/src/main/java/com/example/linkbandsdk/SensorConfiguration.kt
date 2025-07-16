@@ -28,7 +28,7 @@ data class SensorConfiguration(
     val ppgPacketSize: Int = 172, // 헤더(4) + 샘플 28개(168)
     
     // 가속도계 센서 설정
-    val accelerometerSampleRate: Double = 30.0,
+    val accelerometerSampleRate: Double = 25.0,
     val accelerometerSampleSize: Int = 6, // X(2) + Y(2) + Z(2)
     val accelerometerPacketSize: Int = 10 // 헤더(4) + 샘플 1개(6)
 ) {

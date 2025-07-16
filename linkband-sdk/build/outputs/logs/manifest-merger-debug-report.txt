@@ -1,16 +1,16 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml:2:13-83
-INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml:2:13-83
+ADDED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml:2:13-83
+INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml:2:13-83
 	package
-		INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml
+		INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml
 	xmlns:android
-		ADDED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml:2:23-81
+		ADDED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml:2:23-81
 uses-sdk
-INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml reason: use-sdk injection requested
-INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml
-INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml
+INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml reason: use-sdk injection requested
+INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml
+INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml
 	android:targetSdkVersion
-		INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml
+		INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml
 	android:minSdkVersion
-		INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest17213149450005652952.xml
+		INJECTED from /Users/jackahn/Desktop/AndroTest/linkband-sdk/build/intermediates/tmp/ProcessLibraryManifest/debug/tempAndroidManifest7072589279226017378.xml

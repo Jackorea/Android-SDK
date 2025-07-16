@@ -42,6 +42,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,7 +67,7 @@ fun DataScreen(
     selectedCollectionMode: CollectionMode,
     getSensorConfiguration: (SensorType) -> SensorBatchConfiguration?,
     onDisconnect: () -> Unit,
-    onNavigateToScan: () -> Unit = {}, // 기본값 추가
+    onNavigateToScan: () -> Unit,
     onSelectSensor: (SensorType) -> Unit,
     onDeselectSensor: (SensorType) -> Unit,
     onStartSelectedSensors: () -> Unit,
@@ -79,15 +81,18 @@ fun DataScreen(
     onCollectionModeChange: (CollectionMode) -> Unit,
     onSampleCountChange: (SensorType, Int, String) -> Unit,
     onSecondsChange: (SensorType, Int, String) -> Unit,
-    onMinutesChange: (SensorType, Int, String) -> Unit
+    onMinutesChange: (SensorType, Int, String) -> Unit,
+    navController: NavController
 ) {
     // 경고 다이얼로그 상태
     var showStopCollectionDialog by remember { mutableStateOf(false) }
     var showDisconnectDialog by remember { mutableStateOf(false) }
     
     // 연결이 끊어지면 자동으로 스캔 화면으로 이동
-    LaunchedEffect(isConnected) {
-        if (!isConnected) {
+    var hasNavigatedToScan by remember { mutableStateOf(false) }
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    LaunchedEffect(isConnected, currentRoute) {
+        if (!isConnected && currentRoute == "data") {
             onNavigateToScan()
         }
     }

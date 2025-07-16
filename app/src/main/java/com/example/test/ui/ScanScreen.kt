@@ -11,6 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,13 +24,15 @@ fun ScanScreen(
     onStartScan: () -> Unit,
     onStopScan: () -> Unit,
     onConnect: (BluetoothDevice) -> Unit,
-    onNavigateToData: () -> Unit = {}, // 기본값 추가
+    onNavigateToData: () -> Unit,
     onEnableAutoReconnect: () -> Unit,
-    onDisableAutoReconnect: () -> Unit
+    onDisableAutoReconnect: () -> Unit,
+    navController: NavController
 ) {
-    // 연결되면 자동으로 데이터 화면으로 이동
-    LaunchedEffect(isConnected) {
-        if (isConnected) {
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    var hasNavigatedToData by remember { mutableStateOf(false) }
+    LaunchedEffect(isConnected, currentRoute) {
+        if (isConnected && currentRoute == "scan") {
             onNavigateToData()
         }
     }

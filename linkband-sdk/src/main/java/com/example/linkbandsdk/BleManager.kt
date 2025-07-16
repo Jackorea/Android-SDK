@@ -39,6 +39,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.example.linkbandsdk.SensorType
+import java.util.concurrent.atomic.AtomicBoolean
 
 // 센서 타입 enum 추가
 // (SensorType enum 정의를 SensorData.kt로 이동)
@@ -64,7 +65,7 @@ class BleManager(private val context: Context) {
         
         const val EEG_SAMPLE_RATE = 250
         const val PPG_SAMPLE_RATE = 50
-        const val ACC_SAMPLE_RATE = 30
+        const val ACC_SAMPLE_RATE = 25
     }
     
     // 블루투스 시스템 서비스 및 핸들러
@@ -209,6 +210,13 @@ class BleManager(private val context: Context) {
     private var lastPpgDataSize = 0  
     private var lastAccDataSize = 0
     
+    private val eegBufferLock = Any()
+    private val ppgBufferLock = Any()
+    private val accBufferLock = Any()
+    
+    // 중복 notification 방지 플래그
+    private val eegNotificationEnabled = AtomicBoolean(false)
+    
     // BLE 스캔 콜백 (LinkBand 디바이스 필터)
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -318,12 +326,15 @@ class BleManager(private val context: Context) {
             if (data != null && data.isNotEmpty()) {
                 when (characteristic.uuid) {
                     EEG_NOTIFY_CHAR_UUID -> {
+                        Log.d("BleManager", "[LOG] onCharacteristicChanged EEG")
                         parseEegData(data)
                     }
                     PPG_CHAR_UUID -> {
+                        Log.d("BleManager", "[LOG] onCharacteristicChanged PPG")
                         parsePpgData(data)
                     }
                     ACCELEROMETER_CHAR_UUID -> {
+                        Log.d("BleManager", "[LOG] onCharacteristicChanged ACC")
                         parseAccData(data)
                     }
                     BATTERY_CHAR_UUID -> {
@@ -466,25 +477,26 @@ class BleManager(private val context: Context) {
     // EEG 수동 시작 함수
     fun startEegService() {
         bluetoothGatt?.let { gatt ->
+            Log.d("BleManager", "[LOG] startEegService: called")
             Log.d("BleManager", "Starting EEG service manually")
-            
             // 1. EEG 시작 명령 전송 (바이너리 명령 시도)
             val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
             eegWriteChar?.let {
+                Log.d("BleManager", "[LOG] startEegService: writeCharacteristic start")
                 Log.d("BleManager", "Sending EEG start command (binary)")
                 // 바이너리 명령 시도: 0x01 = start, 0x00 = stop
                 it.value = byteArrayOf(0x01)
                 gatt.writeCharacteristic(it)
-                
                 // 2. EEG notification 설정 (파이썬의 toggle_eeg_notify와 동일)
                 handler.postDelayed({
                     val eegNotifyChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_NOTIFY_CHAR_UUID)
                     eegNotifyChar?.let { notifyChar ->
-                        Log.d("BleManager", "Setting up EEG notification")
+                        Log.d("BleManager", "[LOG] startEegService: setCharacteristicNotification true (EEG)")
                         gatt.setCharacteristicNotification(notifyChar, true)
                         val descriptor = notifyChar.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
                         descriptor?.let { desc ->
                             desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            Log.d("BleManager", "[LOG] startEegService: writeDescriptor ENABLE (EEG)")
                             gatt.writeDescriptor(desc)
                             _isEegStarted.value = true
                         } ?: Log.e("BleManager", "EEG descriptor not found")
@@ -496,66 +508,21 @@ class BleManager(private val context: Context) {
     
     // PPG 수동 시작 함수
     fun startPpgService() {
-        Log.d("BleManager", "=== PPG 서비스 시작 요청 ===")
         bluetoothGatt?.let { gatt ->
             Log.d("BleManager", "Starting PPG service manually")
-            Log.d("BleManager", "Available services: ${gatt.services.map { it.uuid }}")
-            
-            // 서비스가 발견되지 않았다면 다시 발견 시도
-            if (gatt.services.isEmpty()) {
-                Log.w("BleManager", "No services found, trying to discover services again")
-                gatt.discoverServices()
-                return
-            }
-            
-            val ppgService = gatt.getService(PPG_SERVICE_UUID)
-            if (ppgService == null) {
-                Log.e("BleManager", "PPG service not found!")
-                Log.e("BleManager", "Expected UUID: $PPG_SERVICE_UUID")
-                return
-            }
-            
-            val ppgChar = ppgService.getCharacteristic(PPG_CHAR_UUID)
+            val ppgChar = gatt.getService(PPG_SERVICE_UUID)?.getCharacteristic(PPG_CHAR_UUID)
             ppgChar?.let {
-                Log.d("BleManager", "Found PPG characteristic: ${it.uuid}")
-                Log.d("BleManager", "PPG characteristic properties: ${it.properties}")
+                // PPG 명령 전송이 필요하다면 여기에 추가
                 Log.d("BleManager", "Setting up PPG notification")
-                
-                val notifyResult = gatt.setCharacteristicNotification(it, true)
-                Log.d("BleManager", "Set PPG notification result: $notifyResult")
-                
+                gatt.setCharacteristicNotification(it, true)
                 val descriptor = it.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
                 descriptor?.let { desc ->
-                    Log.d("BleManager", "Found PPG descriptor: ${desc.uuid}")
                     desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    val writeResult = gatt.writeDescriptor(desc)
-                    Log.d("BleManager", "Write PPG descriptor result: $writeResult")
-                    
-                    // PPG 데이터 수신 대기 로그 추가
-                    handler.postDelayed({
-                        Log.d("BleManager", "PPG notification 설정 완료 - 데이터 수신 대기 중...")
-                        Log.d("BleManager", "PPG 센서가 피부에 닿아 있는지 확인하세요")
-                        
-                        // 5초 후 데이터 수신 여부 확인
-                        handler.postDelayed({
-                            val ppgDataCount = _ppgData.value.size
-                            if (ppgDataCount == 0) {
-                                Log.w("BleManager", "⚠️ PPG 데이터가 수신되지 않았습니다")
-                                Log.w("BleManager", "가능한 원인:")
-                                Log.w("BleManager", "1. PPG 센서가 피부에 닿지 않음")
-                                Log.w("BleManager", "2. 다른 센서와 함께 시작해야 함")
-                                Log.w("BleManager", "3. 디바이스 펌웨어 차이")
-                            } else {
-                                Log.d("BleManager", "✅ PPG 데이터 수신 성공: ${ppgDataCount}개 샘플")
-                            }
-                        }, 5000)
-                    }, 1000)
-                    
+                    gatt.writeDescriptor(desc)
                     _isPpgStarted.value = true
-                    Log.d("BleManager", "PPG service started successfully")
                 } ?: Log.e("BleManager", "PPG descriptor not found")
             } ?: Log.e("BleManager", "PPG characteristic not found")
-        } ?: Log.e("BleManager", "BluetoothGatt is null - 연결되지 않음")
+        }
     }
     
     // ACC 수동 시작 함수  
@@ -564,6 +531,7 @@ class BleManager(private val context: Context) {
             Log.d("BleManager", "Starting ACC service manually")
             val accChar = gatt.getService(ACCELEROMETER_SERVICE_UUID)?.getCharacteristic(ACCELEROMETER_CHAR_UUID)
             accChar?.let {
+                // ACC 명령 전송이 필요하다면 여기에 추가
                 Log.d("BleManager", "Setting up ACC notification")
                 gatt.setCharacteristicNotification(it, true)
                 val descriptor = it.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
@@ -579,15 +547,19 @@ class BleManager(private val context: Context) {
     // 서비스 중지 함수들
     fun stopEegService() {
         bluetoothGatt?.let { gatt ->
+            Log.d("BleManager", "[LOG] stopEegService: called")
             Log.d("BleManager", "Stopping EEG service")
             val eegNotifyChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_NOTIFY_CHAR_UUID)
             eegNotifyChar?.let {
+                Log.d("BleManager", "[LOG] stopEegService: setCharacteristicNotification false (EEG)")
                 gatt.setCharacteristicNotification(it, false)
                 _isEegStarted.value = false
+                eegNotificationEnabled.set(false) // 플래그 초기화
             }
             
             val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
             eegWriteChar?.let {
+                Log.d("BleManager", "[LOG] stopEegService: writeCharacteristic stop")
                 it.value = "stop".toByteArray()
                 gatt.writeCharacteristic(it)
             }
@@ -618,8 +590,10 @@ class BleManager(private val context: Context) {
     
     // 센서별 데이터 파싱 함수 (EEG/PPG/ACC/Battery)
     private fun parseEegData(data: ByteArray) {
+        Log.d("BleManager", "[LOG] parseEegData: data.size=${data.size}")
         try {
             val readings = sensorDataParser.parseEegData(data)
+            Log.d("BleManager", "[LOG] parseEegData: readings.size=${readings.size}")
             
             if (readings.isNotEmpty()) {
                 val currentData = _eegData.value.takeLast(1000).toMutableList()
@@ -647,8 +621,10 @@ class BleManager(private val context: Context) {
     }
     
     private fun parsePpgData(data: ByteArray) {
+        Log.d("BleManager", "[LOG] parsePpgData: data.size=${data.size}")
         try {
             val readings = sensorDataParser.parsePpgData(data)
+            Log.d("BleManager", "[LOG] parsePpgData: readings.size=${readings.size}")
             
             if (readings.isNotEmpty()) {
                 val currentData = _ppgData.value.takeLast(500).toMutableList()
@@ -676,8 +652,10 @@ class BleManager(private val context: Context) {
     }
     
     private fun parseAccData(data: ByteArray) {
+        Log.d("BleManager", "[LOG] parseAccData: data.size=${data.size}")
         try {
             val readings = sensorDataParser.parseAccelerometerData(data)
+            Log.d("BleManager", "[LOG] parseAccData: readings.size=${readings.size}")
             
             if (readings.isNotEmpty()) {
                 val currentMode = _accelerometerMode.value
@@ -798,43 +776,44 @@ class BleManager(private val context: Context) {
     }
     
     private fun setupNotification(gatt: BluetoothGatt, characteristic: BluetoothGattCharacteristic, sensorName: String) {
-        Log.d("BleManager", "Setting up $sensorName notification")
+        if (sensorName == "EEG") {
+            if (eegNotificationEnabled.get()) {
+                Log.w("BleManager", "⚠️ EEG notification already enabled, skipping...")
+                return
+            }
+        }
+        Log.d("BleManager", "[LOG] setupNotification called for $sensorName: setCharacteristicNotification true")
         gatt.setCharacteristicNotification(characteristic, true)
         val descriptor = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
         descriptor?.let { desc ->
             desc.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            Log.d("BleManager", "[LOG] setupNotification: writeDescriptor ENABLE for $sensorName")
             gatt.writeDescriptor(desc)
+            if (sensorName == "EEG") {
+                eegNotificationEnabled.set(true)
+            }
         } ?: Log.e("BleManager", "$sensorName descriptor not found")
     }
     
     // 모든 센서 notification 비활성화 헬퍼 함수 (스위프트 방식과 동일)
     private fun disableAllSensorNotifications() {
         bluetoothGatt?.let { gatt ->
+            Log.d("BleManager", "[LOG] disableAllSensorNotifications: called")
             Log.d("BleManager", "Disabling all sensor notifications")
-            
-            // 모든 pending handler 작업 취소 (센서 재활성화 방지)
             handler.removeCallbacksAndMessages(null)
             Log.d("BleManager", "🛑 All pending handler callbacks cancelled in disable function")
-            
-            // 각 센서 타입에 대해 setNotifyValue(false) 실행 (스위프트와 동일한 방식)
-            // ✅ 주의: 배터리 센서는 비활성화하지 않음 (스위프트 코드와 동일하게 항상 활성 상태 유지)
             setNotifyValue(false, SensorType.EEG, gatt)
-            
-            // PPG와 ACC는 순차적으로 비활성화 (BLE 명령어 큐 충돌 방지)
             handler.postDelayed({
                 setNotifyValue(false, SensorType.PPG, gatt)
             }, 200)
-            
             handler.postDelayed({
                 setNotifyValue(false, SensorType.ACC, gatt)
             }, 400)
-            
-            // 모든 센서 상태 비활성화
             _isEegStarted.value = false
             _isPpgStarted.value = false
             _isAccStarted.value = false
             _isReceivingData.value = false
-            
+            eegNotificationEnabled.set(false) // 플래그 초기화
             Log.d("BleManager", "All sensor notifications disabled (배터리는 항상 활성 상태 유지)")
         }
     }
@@ -851,6 +830,7 @@ class BleManager(private val context: Context) {
         for (service in gatt.services ?: emptyList()) {
             for (characteristic in service.characteristics ?: emptyList()) {
                 if (characteristic.uuid == characteristicUUID) {
+                    Log.d("BleManager", "[LOG] setNotifyValue: setCharacteristicNotification $enabled for $sensorType")
                     gatt.setCharacteristicNotification(characteristic, enabled)
                     
                     // descriptor 설정하여 펌웨어에 notify 활성화/비활성화 명령 전송
@@ -861,6 +841,7 @@ class BleManager(private val context: Context) {
                         } else {
                             BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
                         }
+                        Log.d("BleManager", "[LOG] setNotifyValue: writeDescriptor ${if (enabled) "ENABLE" else "DISABLE"} for $sensorType")
                         gatt.writeDescriptor(desc)
                     }
                     
@@ -868,6 +849,7 @@ class BleManager(private val context: Context) {
                     if (sensorType == SensorType.EEG && !enabled) {
                         val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
                         eegWriteChar?.let {
+                            Log.d("BleManager", "[LOG] setNotifyValue: writeCharacteristic stop (EEG)")
                             it.value = "stop".toByteArray()
                             gatt.writeCharacteristic(it)
                         }
@@ -1142,15 +1124,15 @@ class BleManager(private val context: Context) {
         when (nextSensor) {
             SensorType.EEG -> {
                 lastEegDataSize = _eegData.value.size
-                activateEegSensorInternal()
+                startEegService()
             }
             SensorType.ACC -> {
                 lastAccDataSize = _accData.value.size
-                activateAccSensorInternal()
+                startAccService()
             }
             SensorType.PPG -> {
                 lastPpgDataSize = _ppgData.value.size
-                activatePpgSensorInternal()
+                startPpgService()
             }
         }
     }
@@ -1173,54 +1155,11 @@ class BleManager(private val context: Context) {
         }
     }
     
-    private fun activateEegSensorInternal() {
-        bluetoothGatt?.let { gatt ->
-            val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
-            eegWriteChar?.let {
-                it.value = "start".toByteArray()
-                gatt.writeCharacteristic(it)
-                
-                handler.postDelayed({
-                    val eegNotifyChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_NOTIFY_CHAR_UUID)
-                    eegNotifyChar?.let { notifyChar ->
-                        setupNotification(gatt, notifyChar, "EEG")
-                        _isEegStarted.value = true
-                        Log.d("BleManager", "EEG sensor activated, waiting for data confirmation...")
-                    }
-                }, 200)
-            }
-        }
-    }
+  
     
-    private fun activateAccSensorInternal() {
-        bluetoothGatt?.let { gatt ->
-            val accService = gatt.getService(ACCELEROMETER_SERVICE_UUID)
-            val accChar = accService?.getCharacteristic(ACCELEROMETER_CHAR_UUID)
-            accChar?.let { 
-                handler.postDelayed({
-                    setupNotification(gatt, it, "ACC")
-                    _isAccStarted.value = true
-                    Log.d("BleManager", "ACC sensor activated, waiting for data confirmation...")
-                }, 600)
-            }
-        }
-    }
+ 
     
-    private fun activatePpgSensorInternal() {
-        bluetoothGatt?.let { gatt ->
-            Log.d("BleManager", "=== PPG 내부 활성화 시작 ===")
-            val ppgService = gatt.getService(PPG_SERVICE_UUID)
-            val ppgChar = ppgService?.getCharacteristic(PPG_CHAR_UUID)
-            ppgChar?.let { 
-                Log.d("BleManager", "PPG characteristic found, setting up notification...")
-                handler.postDelayed({
-                    setupNotification(gatt, it, "PPG")
-                    _isPpgStarted.value = true
-                    Log.d("BleManager", "PPG sensor activated, waiting for data confirmation...")
-                }, 500)
-            } ?: Log.e("BleManager", "PPG characteristic not found in activatePpgSensorInternal")
-        } ?: Log.e("BleManager", "BluetoothGatt is null in activatePpgSensorInternal")
-    }
+ 
     
     // ============ 배치 수집 관련 메서드들 ============
     
@@ -1362,21 +1301,19 @@ class BleManager(private val context: Context) {
         )
         dataCollectionConfigs[sensorType] = config
         clearSensorBuffer(sensorType)
-        
         Log.d("BleManager", "🔧 시간 기반 배치 설정: $sensorType - ${timeIntervalMs}ms 간격")
-        
         // 시간 기반 배치 관리자 초기화
         when (sensorType) {
             SensorType.EEG -> {
-                eegTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
+                eegTimeBatchManager = TimeBatchManager(timeIntervalMs)
                 Log.d("BleManager", "📊 EEG TimeBatchManager 초기화됨")
             }
             SensorType.PPG -> {
-                ppgTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
+                ppgTimeBatchManager = TimeBatchManager(timeIntervalMs)
                 Log.d("BleManager", "📊 PPG TimeBatchManager 초기화됨")
             }
             SensorType.ACC -> {
-                accTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
+                accTimeBatchManager = TimeBatchManager(timeIntervalMs)
                 Log.d("BleManager", "📊 ACC TimeBatchManager 초기화됨")
             }
         }
@@ -1406,28 +1343,25 @@ class BleManager(private val context: Context) {
      * EEG 데이터를 배치 버퍼에 추가합니다
      */
     private fun addToEegBuffer(reading: EegData) {
-        val config = dataCollectionConfigs[SensorType.EEG] ?: return
-        
-        when (val mode = config.mode) {
-            is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
-                // 시간 기반 모드: TimeBatchManager 사용
-                eegTimeBatchManager?.addSample(reading)?.let { batch ->
-                    Log.d("BleManager", "📦 EEG 시간 배치 완성: ${batch.size}개 샘플")
-                    logEegBatch(batch)
-                    _eegBatchData.value = batch
+        synchronized(eegBufferLock) {
+            val config = dataCollectionConfigs[SensorType.EEG] ?: return
+            when (val mode = config.mode) {
+                is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
+                    eegTimeBatchManager?.addSample(reading)?.let { batch ->
+                        Log.d("BleManager", "\uD83D\uDCE6 EEG 시간 배치 완성: \\${batch.size}개 샘플")
+                        logEegBatch(batch)
+                        _eegBatchData.value = batch
+                    }
                 }
-            }
-            is DataCollectionConfig.DataCollectionMode.SampleCount -> {
-                // 샘플 기반 모드: 기존 버퍼 사용
-                eegSampleBuffer.add(reading)
-                
-                if (eegSampleBuffer.size >= mode.count) {
-                    val batch = eegSampleBuffer.take(mode.count)
-                    eegSampleBuffer.removeAll(batch.toSet())
-                    
-                    Log.d("BleManager", "📦 EEG 샘플 배치 완성: ${batch.size}개 샘플")
-                    logEegBatch(batch)
-                    _eegBatchData.value = batch
+                is DataCollectionConfig.DataCollectionMode.SampleCount -> {
+                    eegSampleBuffer.add(reading)
+                    if (eegSampleBuffer.size >= mode.count) {
+                        val batch = eegSampleBuffer.take(mode.count)
+                        eegSampleBuffer.removeAll(batch.toSet())
+                        Log.d("BleManager", "\uD83D\uDCE6 EEG 샘플 배치 완성: \\${batch.size}개 샘플")
+                        logEegBatch(batch)
+                        _eegBatchData.value = batch
+                    }
                 }
             }
         }
@@ -1437,28 +1371,25 @@ class BleManager(private val context: Context) {
      * PPG 데이터를 배치 버퍼에 추가합니다
      */
     private fun addToPpgBuffer(reading: PpgData) {
-        val config = dataCollectionConfigs[SensorType.PPG] ?: return
-        
-        when (val mode = config.mode) {
-            is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
-                // 시간 기반 모드: TimeBatchManager 사용
-                ppgTimeBatchManager?.addSample(reading)?.let { batch ->
-                    Log.d("BleManager", "📦 PPG 시간 배치 완성: ${batch.size}개 샘플")
-                    logPpgBatch(batch)
-                    _ppgBatchData.value = batch
+        synchronized(ppgBufferLock) {
+            val config = dataCollectionConfigs[SensorType.PPG] ?: return
+            when (val mode = config.mode) {
+                is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
+                    ppgTimeBatchManager?.addSample(reading)?.let { batch ->
+                        Log.d("BleManager", "\uD83D\uDCE6 PPG 시간 배치 완성: \\${batch.size}개 샘플")
+                        logPpgBatch(batch)
+                        _ppgBatchData.value = batch
+                    }
                 }
-            }
-            is DataCollectionConfig.DataCollectionMode.SampleCount -> {
-                // 샘플 기반 모드: 기존 버퍼 사용
-                ppgSampleBuffer.add(reading)
-                
-                if (ppgSampleBuffer.size >= mode.count) {
-                    val batch = ppgSampleBuffer.take(mode.count)
-                    ppgSampleBuffer.removeAll(batch.toSet())
-                    
-                    Log.d("BleManager", "📦 PPG 샘플 배치 완성: ${batch.size}개 샘플")
-                    logPpgBatch(batch)
-                    _ppgBatchData.value = batch
+                is DataCollectionConfig.DataCollectionMode.SampleCount -> {
+                    ppgSampleBuffer.add(reading)
+                    if (ppgSampleBuffer.size >= mode.count) {
+                        val batch = ppgSampleBuffer.take(mode.count)
+                        ppgSampleBuffer.removeAll(batch.toSet())
+                        Log.d("BleManager", "\uD83D\uDCE6 PPG 샘플 배치 완성: \\${batch.size}개 샘플")
+                        logPpgBatch(batch)
+                        _ppgBatchData.value = batch
+                    }
                 }
             }
         }
@@ -1468,31 +1399,31 @@ class BleManager(private val context: Context) {
      * ACC 데이터를 배치 버퍼에 추가합니다
      */
     private fun addToAccBuffer(reading: AccData) {
-        val config = dataCollectionConfigs[SensorType.ACC] ?: return
-        when (val mode = config.mode) {
-            is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
-                accTimeBatchManager?.addSample(reading)?.let { batch ->
-                    Log.d("BleManager", "📦 ACC 시간 배치 완성: ${batch.size}개 샘플")
-                    // ProcessedAccData에서 해당 타임스탬프 구간만 추출
-                    val processedBatch = batch.mapNotNull { acc ->
-                        _processedAccData.value.find { it.timestamp == acc.timestamp }
+        synchronized(accBufferLock) {
+            val config = dataCollectionConfigs[SensorType.ACC] ?: return
+            when (val mode = config.mode) {
+                is DataCollectionConfig.DataCollectionMode.TimeInterval -> {
+                    accTimeBatchManager?.addSample(reading)?.let { batch ->
+                        Log.d("BleManager", "\uD83D\uDCE6 ACC 시간 배치 완성: \\${batch.size}개 샘플")
+                        val processedBatch = batch.mapNotNull { acc ->
+                            _processedAccData.value.find { it.timestamp == acc.timestamp }
+                        }
+                        logAccBatch(processedBatch)
+                        _accBatchData.value = batch
                     }
-                    logAccBatch(processedBatch)
-                    _accBatchData.value = batch
                 }
-            }
-            is DataCollectionConfig.DataCollectionMode.SampleCount -> {
-                accSampleBuffer.add(reading)
-                if (accSampleBuffer.size >= mode.count) {
-                    val batch = accSampleBuffer.take(mode.count)
-                    accSampleBuffer.removeAll(batch.toSet())
-                    Log.d("BleManager", "📦 ACC 샘플 배치 완성: ${batch.size}개 샘플")
-                    // ProcessedAccData에서 해당 타임스탬프 구간만 추출
-                    val processedBatch = batch.mapNotNull { acc ->
-                        _processedAccData.value.find { it.timestamp == acc.timestamp }
+                is DataCollectionConfig.DataCollectionMode.SampleCount -> {
+                    accSampleBuffer.add(reading)
+                    if (accSampleBuffer.size >= mode.count) {
+                        val batch = accSampleBuffer.take(mode.count)
+                        accSampleBuffer.removeAll(batch.toSet())
+                        Log.d("BleManager", "\uD83D\uDCE6 ACC 샘플 배치 완성: \\${batch.size}개 샘플")
+                        val processedBatch = batch.mapNotNull { acc ->
+                            _processedAccData.value.find { it.timestamp == acc.timestamp }
+                        }
+                        logAccBatch(processedBatch)
+                        _accBatchData.value = batch
                     }
-                    logAccBatch(processedBatch)
-                    _accBatchData.value = batch
                 }
             }
         }
@@ -1508,7 +1439,7 @@ class BleManager(private val context: Context) {
                 "BleManager",
                 "  [${index + 1}] timestamp: ${data.timestamp.time}, " +
                 "ch1Raw: ${data.ch1Raw}, ch2Raw: ${data.ch2Raw}, " +
-                "ch1uV: ${data.channel1.roundToInt()}µV, ch2uV: ${data.channel2.roundToInt()}µV, " +
+                String.format("ch1uV: %.1fµV, ch2uV: %.1fµV, ", data.channel1, data.channel2) +
                 "leadOff: $leadOffValue"
             )
         }

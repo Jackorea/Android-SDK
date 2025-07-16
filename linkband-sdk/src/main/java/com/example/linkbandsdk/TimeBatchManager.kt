@@ -13,11 +13,10 @@ import com.example.linkbandsdk.SensorType
  * @param timestampExtractor 데이터에서 타임스탬프를 추출하는 함수
  */
 class TimeBatchManager<T>(
-    private val targetIntervalMs: Long,
-    private val timestampExtractor: (T) -> Date
+    private val targetIntervalMs: Long
 ) {
     private val buffer = mutableListOf<T>()
-    private var batchStartTime: Date? = null
+    private var batchStartWallClock: Long? = null
     
     /**
      * 샘플을 추가하고 배치가 완성되면 반환
@@ -26,22 +25,17 @@ class TimeBatchManager<T>(
      * @return 배치가 완성되면 배치 리스트, 아니면 null
      */
     fun addSample(sample: T): List<T>? {
-        val sampleTime = timestampExtractor(sample)
-        
-        // 첫 번째 샘플이면 배치 시작 시간 설정
-        if (batchStartTime == null) {
-            batchStartTime = sampleTime
+        val now = System.currentTimeMillis()
+        if (batchStartWallClock == null) {
+            batchStartWallClock = now
         }
-        
         buffer.add(sample)
-        
-        // 시간 간격 확인
-        val elapsed = sampleTime.time - batchStartTime!!.time
+        val elapsed = now - batchStartWallClock!!
         
         return if (elapsed >= targetIntervalMs) {
             val batch = buffer.toList()
             buffer.clear()
-            batchStartTime = sampleTime // 새로운 배치 시작
+            batchStartWallClock = now
             batch
         } else {
             null
@@ -56,7 +50,7 @@ class TimeBatchManager<T>(
         return if (buffer.isNotEmpty()) {
             val batch = buffer.toList()
             buffer.clear()
-            batchStartTime = null
+            batchStartWallClock = null
             batch
         } else {
             null
@@ -68,7 +62,7 @@ class TimeBatchManager<T>(
      */
     fun clearBuffer() {
         buffer.clear()
-        batchStartTime = null
+        batchStartWallClock = null
     }
     
     /**
