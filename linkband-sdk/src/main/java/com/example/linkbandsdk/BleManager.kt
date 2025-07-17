@@ -217,6 +217,9 @@ class BleManager(private val context: Context) {
     // 중복 notification 방지 플래그
     private val eegNotificationEnabled = AtomicBoolean(false)
     
+    // 연속 EEG 타임스탬프 관리 변수
+    private var lastEegSampleTimestampMillis: Long? = null
+    
     // BLE 스캔 콜백 (LinkBand 디바이스 필터)
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -326,15 +329,12 @@ class BleManager(private val context: Context) {
             if (data != null && data.isNotEmpty()) {
                 when (characteristic.uuid) {
                     EEG_NOTIFY_CHAR_UUID -> {
-                        Log.d("BleManager", "[LOG] onCharacteristicChanged EEG")
                         parseEegData(data)
                     }
                     PPG_CHAR_UUID -> {
-                        Log.d("BleManager", "[LOG] onCharacteristicChanged PPG")
                         parsePpgData(data)
                     }
                     ACCELEROMETER_CHAR_UUID -> {
-                        Log.d("BleManager", "[LOG] onCharacteristicChanged ACC")
                         parseAccData(data)
                     }
                     BATTERY_CHAR_UUID -> {
@@ -556,13 +556,14 @@ class BleManager(private val context: Context) {
                 _isEegStarted.value = false
                 eegNotificationEnabled.set(false) // 플래그 초기화
             }
-            
             val eegWriteChar = gatt.getService(EEG_NOTIFY_SERVICE_UUID)?.getCharacteristic(EEG_WRITE_CHAR_UUID)
             eegWriteChar?.let {
                 Log.d("BleManager", "[LOG] stopEegService: writeCharacteristic stop")
                 it.value = "stop".toByteArray()
                 gatt.writeCharacteristic(it)
             }
+            // 센서 데이터 파서의 EEG 타임스탬프도 리셋
+            sensorDataParser.resetEegTimestamp()
         }
     }
     
@@ -574,6 +575,8 @@ class BleManager(private val context: Context) {
                 gatt.setCharacteristicNotification(it, false)
                 _isPpgStarted.value = false
             }
+            // 센서 데이터 파서의 PPG 타임스탬프도 리셋
+            sensorDataParser.resetPpgTimestamp()
         }
     }
     
@@ -585,32 +588,25 @@ class BleManager(private val context: Context) {
                 gatt.setCharacteristicNotification(it, false)
                 _isAccStarted.value = false
             }
+            // 센서 데이터 파서의 ACC 타임스탬프도 리셋
+            sensorDataParser.resetAccTimestamp()
         }
     }
     
     // 센서별 데이터 파싱 함수 (EEG/PPG/ACC/Battery)
     private fun parseEegData(data: ByteArray) {
-        Log.d("BleManager", "[LOG] parseEegData: data.size=${data.size}")
         try {
             val readings = sensorDataParser.parseEegData(data)
-            Log.d("BleManager", "[LOG] parseEegData: readings.size=${readings.size}")
-            
             if (readings.isNotEmpty()) {
                 val currentData = _eegData.value.takeLast(1000).toMutableList()
                 currentData.addAll(readings)
                 _eegData.value = currentData
-                
-                // 데이터 수신 확인 (새로운 데이터가 들어왔는지 확인)
                 if (_eegData.value.size > lastEegDataSize) {
                     onSensorDataReceived(SensorType.EEG)
                 }
-                
-                // 배치 처리 추가
                 readings.forEach { reading ->
                     addToEegBuffer(reading)
                 }
-                
-                // CSV 파일에 저장
                 readings.forEach { data ->
                     writeEegToCsv(data)
                 }
@@ -621,11 +617,8 @@ class BleManager(private val context: Context) {
     }
     
     private fun parsePpgData(data: ByteArray) {
-        Log.d("BleManager", "[LOG] parsePpgData: data.size=${data.size}")
         try {
             val readings = sensorDataParser.parsePpgData(data)
-            Log.d("BleManager", "[LOG] parsePpgData: readings.size=${readings.size}")
-            
             if (readings.isNotEmpty()) {
                 val currentData = _ppgData.value.takeLast(500).toMutableList()
                 currentData.addAll(readings)
@@ -652,11 +645,8 @@ class BleManager(private val context: Context) {
     }
     
     private fun parseAccData(data: ByteArray) {
-        Log.d("BleManager", "[LOG] parseAccData: data.size=${data.size}")
         try {
             val readings = sensorDataParser.parseAccelerometerData(data)
-            Log.d("BleManager", "[LOG] parseAccData: readings.size=${readings.size}")
-            
             if (readings.isNotEmpty()) {
                 val currentMode = _accelerometerMode.value
                 
@@ -1305,15 +1295,15 @@ class BleManager(private val context: Context) {
         // 시간 기반 배치 관리자 초기화
         when (sensorType) {
             SensorType.EEG -> {
-                eegTimeBatchManager = TimeBatchManager(timeIntervalMs)
+                eegTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
                 Log.d("BleManager", "📊 EEG TimeBatchManager 초기화됨")
             }
             SensorType.PPG -> {
-                ppgTimeBatchManager = TimeBatchManager(timeIntervalMs)
+                ppgTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
                 Log.d("BleManager", "📊 PPG TimeBatchManager 초기화됨")
             }
             SensorType.ACC -> {
-                accTimeBatchManager = TimeBatchManager(timeIntervalMs)
+                accTimeBatchManager = TimeBatchManager(timeIntervalMs) { it.timestamp }
                 Log.d("BleManager", "📊 ACC TimeBatchManager 초기화됨")
             }
         }

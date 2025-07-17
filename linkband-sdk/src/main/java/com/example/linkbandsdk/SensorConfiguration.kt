@@ -16,7 +16,7 @@ data class SensorConfiguration(
     // EEG 센서 설정
     val eegSampleRate: Double = 250.0,
     val eegSampleSize: Int = 7, // leadOff(1) + CH1(3) + CH2(3)
-    val eegPacketSize: Int = 39, // 헤더(4) + 샘플 5개(35)
+    val eegPacketSize: Int = 179,
     val eegVoltageReference: Double = 4.033,
     val eegGain: Double = 12.0,
     val eegResolution: Double = 8388607.0, // 2^23 - 1
@@ -30,7 +30,7 @@ data class SensorConfiguration(
     // 가속도계 센서 설정
     val accelerometerSampleRate: Double = 25.0,
     val accelerometerSampleSize: Int = 6, // X(2) + Y(2) + Z(2)
-    val accelerometerPacketSize: Int = 10 // 헤더(4) + 샘플 1개(6)
+    val accelerometerPacketSize: Int = 184 // 
 ) {
     companion object {
         val default = SensorConfiguration()

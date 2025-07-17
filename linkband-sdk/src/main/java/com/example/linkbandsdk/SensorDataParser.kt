@@ -36,216 +36,168 @@ class SensorDataParser(
         private const val HEADER_SIZE = 4
     }
     
+    // 연속 EEG 타임스탬프 관리 변수
+    private var lastEegSampleTimestampMillis: Long? = null
+    // 연속 PPG 타임스탬프 관리 변수
+    private var lastPpgSampleTimestampMillis: Long? = null
+    // 연속 ACC 타임스탬프 관리 변수
+    private var lastAccSampleTimestampMillis: Long? = null
+
     /**
-     * 원시 EEG 데이터 패킷을 구조화된 읽기값으로 파싱
-     *
-     * @param data EEG 특성에서 수신된 원시 바이너리 데이터
-     * @return 패킷에서 추출된 EEG 읽기값 배열
-     * @throws SensorDataParsingException 패킷 형식이 유효하지 않은 경우
+     * BLE 연결 해제/센서 중지 시 타임스탬프 리셋
+     */
+    fun resetEegTimestamp() {
+        lastEegSampleTimestampMillis = null
+    }
+    fun resetPpgTimestamp() {
+        lastPpgSampleTimestampMillis = null
+    }
+    fun resetAccTimestamp() {
+        lastAccSampleTimestampMillis = null
+    }
+
+    /**
+     * 원시 EEG 데이터 패킷을 구조화된 읽기값으로 파싱 (Swift 스타일)
+     * BLE 패킷 헤더가 아닌 내부 lastEegSampleTimestampMillis를 기준으로 연속 타임스탬프를 생성
      */
     @Throws(SensorDataParsingException::class)
     fun parseEegData(data: ByteArray): List<EegData> {
-        // 최소 패킷 크기 검증 (헤더 + 최소 1개 샘플)
-        val minPacketSize = HEADER_SIZE + configuration.eegSampleSize
-        if (data.size < minPacketSize) {
+        val headerSize = 4
+        if (data.size < headerSize + configuration.eegSampleSize) {
             throw SensorDataParsingException(
-                "EEG packet too short: ${data.size} bytes (minimum: $minPacketSize)"
+                "EEG packet too short: ${data.size} bytes (minimum: ${headerSize + configuration.eegSampleSize})"
             )
         }
-        
-        // 사용 가능한 실제 샘플 수 계산
-        val dataWithoutHeader = data.size - HEADER_SIZE
+        val dataWithoutHeader = data.size - headerSize
         val actualSampleCount = dataWithoutHeader / configuration.eegSampleSize
-        val expectedSampleCount = (configuration.eegPacketSize - HEADER_SIZE) / configuration.eegSampleSize
-        
-        // 버퍼링 분석을 위한 시간 계산
-        val actualDurationMs = (actualSampleCount / configuration.eegSampleRate * 1000).toInt()
-        val expectedDurationMs = (expectedSampleCount / configuration.eegSampleRate * 1000).toInt()
-        
-        // 패킷 크기가 예상과 다른 경우 로깅
+        val expectedSampleCount = (configuration.eegPacketSize - headerSize) / configuration.eegSampleSize
         if (data.size != configuration.eegPacketSize) {
-            /*
-            Log.w(TAG, "⚠️ EEG packet size: ${data.size} bytes (expected: ${configuration.eegPacketSize}), " +
-                     "processing $actualSampleCount samples (expected: $expectedSampleCount)")
-            Log.i(TAG, "📊 EEG buffering: ${actualDurationMs}ms worth of data (expected: ${expectedDurationMs}ms)")
-            */
+            Log.w(TAG, "⚠️ EEG packet size: ${data.size} bytes (expected: ${configuration.eegPacketSize}), processing $actualSampleCount samples (expected: $expectedSampleCount)")
         }
-        
-        // BLE 패킷 헤더에서 하드웨어 timestamp 추출
-        val baseTimestampRaw = extractTimestamp(data)
-        val baseTimestampSec = baseTimestampRaw / 32.768 / 1000.0 // 초 단위 (파이썬과 동일)
-        val sampleIntervalSec = 1.0 / configuration.eegSampleRate
-        var timestampSec = baseTimestampSec - ((actualSampleCount - 1) * sampleIntervalSec)
-        
+        // 헤더에서 timestamp 추출 (Little Endian)
+        val timeRaw = ((data[3].toLong() and 0xFF) shl 24) or ((data[2].toLong() and 0xFF) shl 16) or ((data[1].toLong() and 0xFF) shl 8) or (data[0].toLong() and 0xFF)
+        val packetTimestampSec = timeRaw / configuration.timestampDivisor / configuration.millisecondsToSeconds
+        val packetTimestampMillis = (packetTimestampSec * 1000).toLong()
         val readings = mutableListOf<EegData>()
-        
-        // 사용 가능한 샘플만 파싱
+        var sampleTimestampMillis = lastEegSampleTimestampMillis?.let { it + (1000.0 / configuration.eegSampleRate).toLong() } ?: packetTimestampMillis
         for (sampleIndex in 0 until actualSampleCount) {
-            val i = HEADER_SIZE + (sampleIndex * configuration.eegSampleSize)
-            
-            // 배열 경계 초과 방지
+            val i = headerSize + (sampleIndex * configuration.eegSampleSize)
             if (i + configuration.eegSampleSize > data.size) {
                 Log.w(TAG, "⚠️ EEG sample ${sampleIndex + 1} incomplete, skipping remaining samples")
                 break
             }
-            
-            // lead-off (1바이트) - 센서 연결 상태
             val leadOffRaw = data[i].toInt() and 0xFF
-            val leadOffNormalized = leadOffRaw > 0  // 리드가 연결 해제된 경우 true
-            
-            // CH1: 3바이트 (Big Endian)
-            var ch1Raw = ((data[i+1].toInt() and 0xFF) shl 16) or
-                        ((data[i+2].toInt() and 0xFF) shl 8) or
-                        (data[i+3].toInt() and 0xFF)
-            
-            // CH2: 3바이트 (Big Endian)
-            var ch2Raw = ((data[i+4].toInt() and 0xFF) shl 16) or
-                        ((data[i+5].toInt() and 0xFF) shl 8) or
-                        (data[i+6].toInt() and 0xFF)
-            
-            // 24비트 부호 있는 값 처리 (MSB 부호 확장)
-            if ((ch1Raw and 0x800000) != 0) {
-                ch1Raw -= 0x1000000
-            }
-            if ((ch2Raw and 0x800000) != 0) {
-                ch2Raw -= 0x1000000
-            }
-            
-            // 설정 매개변수를 사용하여 전압으로 변환
-            val ch1uV = ch1Raw * configuration.eegVoltageReference / configuration.eegGain / 
-                       configuration.eegResolution * configuration.microVoltMultiplier
-            val ch2uV = ch2Raw * configuration.eegVoltageReference / configuration.eegGain / 
-                       configuration.eegResolution * configuration.microVoltMultiplier
-            
+            val leadOffNormalized = leadOffRaw > 0
+            var ch1Raw = ((data[i+1].toInt() and 0xFF) shl 16) or ((data[i+2].toInt() and 0xFF) shl 8) or (data[i+3].toInt() and 0xFF)
+            var ch2Raw = ((data[i+4].toInt() and 0xFF) shl 16) or ((data[i+5].toInt() and 0xFF) shl 8) or (data[i+6].toInt() and 0xFF)
+            if ((ch1Raw and 0x800000) != 0) ch1Raw -= 0x1000000
+            if ((ch2Raw and 0x800000) != 0) ch2Raw -= 0x1000000
+            val ch1uV = ch1Raw * configuration.eegVoltageReference / configuration.eegGain / configuration.eegResolution * configuration.microVoltMultiplier
+            val ch2uV = ch2Raw * configuration.eegVoltageReference / configuration.eegGain / configuration.eegResolution * configuration.microVoltMultiplier
             val reading = EegData(
-                timestamp = Date((timestampSec * 1000).toLong()),
-                leadOff = leadOffNormalized,
                 channel1 = ch1uV,
                 channel2 = ch2uV,
                 ch1Raw = ch1Raw,
-                ch2Raw = ch2Raw
+                ch2Raw = ch2Raw,
+                leadOff = leadOffNormalized,
+                timestamp = Date(sampleTimestampMillis)
             )
-            
             readings.add(reading)
-            
-            // 다음 샘플을 위한 타임스탬프 증가
-            timestampSec += sampleIntervalSec
+            sampleTimestampMillis += (1000.0 / configuration.eegSampleRate).toLong()
         }
-        
+        // 마지막 샘플 타임스탬프 저장
+        if (readings.isNotEmpty()) {
+            lastEegSampleTimestampMillis = readings.last().timestamp.time
+        }
         return readings
     }
-    
+
     /**
-     * 원시 PPG 데이터 패킷을 구조화된 읽기값으로 파싱
-     *
-     * @param data PPG 특성에서 수신된 원시 바이너리 데이터
-     * @return 패킷에서 추출된 PPG 읽기값 배열
-     * @throws SensorDataParsingException 패킷 형식이 유효하지 않은 경우
+     * 원시 PPG 데이터 패킷을 구조화된 읽기값으로 파싱 (Swift 스타일)
+     * BLE 패킷 헤더가 아닌 내부 lastPpgSampleTimestampMillis를 기준으로 연속 타임스탬프를 생성
      */
     @Throws(SensorDataParsingException::class)
     fun parsePpgData(data: ByteArray): List<PpgData> {
-        // 최소 패킷 크기 검증 (헤더 + 최소 1개 샘플)
-        val minPacketSize = HEADER_SIZE + configuration.ppgSampleSize
-        if (data.size < minPacketSize) {
+        val headerSize = 4
+        if (data.size < headerSize + configuration.ppgSampleSize) {
             throw SensorDataParsingException(
-                "PPG packet too short: ${data.size} bytes (minimum: $minPacketSize)"
+                "PPG packet too short: ${data.size} bytes (minimum: ${headerSize + configuration.ppgSampleSize})"
             )
         }
-        
-        // 사용 가능한 실제 샘플 수 계산
-        val dataWithoutHeader = data.size - HEADER_SIZE
+        val dataWithoutHeader = data.size - headerSize
         val actualSampleCount = dataWithoutHeader / configuration.ppgSampleSize
-        val expectedSampleCount = (configuration.ppgPacketSize - HEADER_SIZE) / configuration.ppgSampleSize
-        
-        // 패킷 크기가 예상과 다른 경우 로깅
+        val expectedSampleCount = (configuration.ppgPacketSize - headerSize) / configuration.ppgSampleSize
         if (data.size != configuration.ppgPacketSize) {
-            /*
-            Log.w(TAG, "⚠️ PPG packet size: ${data.size} bytes (expected: ${configuration.ppgPacketSize}), " +
-                     "processing $actualSampleCount samples (expected: $expectedSampleCount)")
-            */
+            Log.w(TAG, "⚠️ PPG packet size: ${data.size} bytes (expected: ${configuration.ppgPacketSize}), processing $actualSampleCount samples (expected: $expectedSampleCount)")
         }
-        
-        // BLE 패킷 헤더에서 하드웨어 timestamp 추출
-        val baseTimestampRaw = extractTimestamp(data)
-        val baseTimestampSec = baseTimestampRaw / 32.768 / 1000.0 // 초 단위 (파이썬과 동일)
-        val sampleIntervalSec = 1.0 / configuration.ppgSampleRate
-        var timestampSec = baseTimestampSec - ((actualSampleCount - 1) * sampleIntervalSec)
-        
+        val timeRaw = ((data[3].toLong() and 0xFF) shl 24) or ((data[2].toLong() and 0xFF) shl 16) or ((data[1].toLong() and 0xFF) shl 8) or (data[0].toLong() and 0xFF)
+        val packetTimestampSec = timeRaw / configuration.timestampDivisor / configuration.millisecondsToSeconds
+        val packetTimestampMillis = (packetTimestampSec * 1000).toLong()
         val readings = mutableListOf<PpgData>()
-        
-        // 사용 가능한 샘플만 파싱
+        var sampleTimestampMillis = lastPpgSampleTimestampMillis?.let { it + (1000.0 / configuration.ppgSampleRate).toLong() } ?: packetTimestampMillis
         for (sampleIndex in 0 until actualSampleCount) {
-            val i = HEADER_SIZE + (sampleIndex * configuration.ppgSampleSize)
-            
-            // 배열 경계 초과 방지
+            val i = headerSize + (sampleIndex * configuration.ppgSampleSize)
             if (i + configuration.ppgSampleSize > data.size) {
                 Log.w(TAG, "⚠️ PPG sample ${sampleIndex + 1} incomplete, skipping remaining samples")
                 break
             }
-            
-            val red = ((data[i].toInt() and 0xFF) shl 16) or
-                     ((data[i+1].toInt() and 0xFF) shl 8) or
-                     (data[i+2].toInt() and 0xFF)
-            val ir = ((data[i+3].toInt() and 0xFF) shl 16) or
-                    ((data[i+4].toInt() and 0xFF) shl 8) or
-                    (data[i+5].toInt() and 0xFF)
-            
+            val red = (data[i].toInt() shl 16) or (data[i+1].toInt() shl 8) or (data[i+2].toInt())
+            val ir = (data[i+3].toInt() shl 16) or (data[i+4].toInt() shl 8) or (data[i+5].toInt())
             val reading = PpgData(
-                timestamp = Date((timestampSec * 1000).toLong()),
                 red = red,
-                ir = ir
+                ir = ir,
+                timestamp = Date(sampleTimestampMillis)
             )
-            
             readings.add(reading)
-            
-            // 다음 샘플을 위한 타임스탬프 증가
-            timestampSec += sampleIntervalSec
+            sampleTimestampMillis += (1000.0 / configuration.ppgSampleRate).toLong()
         }
-        
+        if (readings.isNotEmpty()) {
+            lastPpgSampleTimestampMillis = readings.last().timestamp.time
+        }
         return readings
     }
-    
+
     /**
-     * 원시 가속도계 데이터 패킷을 구조화된 읽기값으로 파싱
-     *
-     * @param data 가속도계 특성에서 수신된 원시 바이너리 데이터
-     * @return 패킷에서 추출된 가속도계 읽기값 배열
-     * @throws SensorDataParsingException 패킷 형식이 유효하지 않은 경우
+     * 원시 가속도계 데이터 패킷을 구조화된 읽기값으로 파싱 (Swift 스타일)
+     * BLE 패킷 헤더가 아닌 내부 lastAccSampleTimestampMillis를 기준으로 연속 타임스탬프를 생성
      */
     @Throws(SensorDataParsingException::class)
     fun parseAccelerometerData(data: ByteArray): List<AccData> {
+        val headerSize = 4
         val sampleSize = 6
-        val minPacketSize = HEADER_SIZE + sampleSize
-        if (data.size < minPacketSize) {
+        if (data.size < headerSize + sampleSize) {
             throw SensorDataParsingException(
-                "ACCEL packet too short: ${data.size} bytes (minimum: $minPacketSize)"
+                "ACCEL packet too short: ${data.size} bytes (minimum: ${headerSize + sampleSize})"
             )
         }
-        val dataWithoutHeaderCount = data.size - HEADER_SIZE
+        val dataWithoutHeaderCount = data.size - headerSize
         if (dataWithoutHeaderCount < sampleSize) {
             throw SensorDataParsingException(
                 "ACCEL packet has header but not enough data for one sample"
             )
         }
         val sampleCount = dataWithoutHeaderCount / sampleSize
-        val baseTimestampRaw = extractTimestamp(data)
-        val baseTimestampSec = baseTimestampRaw / 32.768 / 1000.0 // 초 단위 (파이썬과 동일)
-        val sampleIntervalSec = 1.0 / configuration.accelerometerSampleRate
-        var timestampSec = baseTimestampSec - ((sampleCount - 1) * sampleIntervalSec)
+        val timeRaw = ((data[3].toLong() and 0xFF) shl 24) or ((data[2].toLong() and 0xFF) shl 16) or ((data[1].toLong() and 0xFF) shl 8) or (data[0].toLong() and 0xFF)
+        val packetTimestampSec = timeRaw / configuration.timestampDivisor / configuration.millisecondsToSeconds
+        val packetTimestampMillis = (packetTimestampSec * 1000).toLong()
         val readings = mutableListOf<AccData>()
+        var sampleTimestampMillis = lastAccSampleTimestampMillis?.let { it + (1000.0 / configuration.accelerometerSampleRate).toLong() } ?: packetTimestampMillis
         for (i in 0 until sampleCount) {
-            val baseInFullPacket = HEADER_SIZE + (i * sampleSize)
-            val x = (data[baseInFullPacket + 1].toInt() and 0xFF).toShort()
-            val y = (data[baseInFullPacket + 3].toInt() and 0xFF).toShort()
-            val z = (data[baseInFullPacket + 5].toInt() and 0xFF).toShort()
+            val baseInFullPacket = headerSize + (i * sampleSize)
+            val x = (data[baseInFullPacket + 1].toInt()).toShort()
+            val y = (data[baseInFullPacket + 3].toInt()).toShort()
+            val z = (data[baseInFullPacket + 5].toInt()).toShort()
             val reading = AccData(
-                timestamp = Date((timestampSec * 1000).toLong()),
                 x = x,
                 y = y,
-                z = z
+                z = z,
+                timestamp = Date(sampleTimestampMillis)
             )
             readings.add(reading)
-            timestampSec += sampleIntervalSec
+            sampleTimestampMillis += (1000.0 / configuration.accelerometerSampleRate).toLong()
+        }
+        if (readings.isNotEmpty()) {
+            lastAccSampleTimestampMillis = readings.last().timestamp.time
         }
         return readings
     }
